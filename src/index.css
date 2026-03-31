@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #ffffff;
+}
+
+/* ── Light (default) ─────────────────────────────── */
+/* No overrides needed, uses Tailwind defaults */
+
+/* ── Dark ─────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-surface: #1e293b;
+
+  /* Slate scale – inverted for dark backgrounds & light text */
+  --color-slate-50: #0f172a;
+  --color-slate-100: #1a2536;
+  --color-slate-200: #334155;
+  --color-slate-300: #475569;
+  --color-slate-400: #64748b;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #cbd5e1;
+  --color-slate-700: #e2e8f0;
+  --color-slate-800: #f1f5f9;
+  --color-slate-900: #f8fafc;
+  --color-slate-950: #ffffff;
+
+  /* Indigo accent – brighter for dark bg */
+  --color-indigo-50: #1e1b4b;
+  --color-indigo-100: #312e81;
+  --color-indigo-200: #3730a3;
+  --color-indigo-500: #818cf8;
+  --color-indigo-600: #6366f1;
+  --color-indigo-700: #4f46e5;
+
+  /* Emerald */
+  --color-emerald-50: #022c22;
+  --color-emerald-100: #064e3b;
+  --color-emerald-200: #065f46;
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+
+  /* Red */
+  --color-red-50: #450a0a;
+  --color-red-100: #7f1d1d;
+  --color-red-500: #f87171;
+  --color-red-600: #ef4444;
+  --color-red-700: #f87171;
+
+  /* Amber */
+  --color-amber-50: #451a03;
+  --color-amber-100: #78350f;
+  --color-amber-600: #fbbf24;
+  --color-amber-800: #fcd34d;
+}
+
+/* ── Blue ─────────────────────────────────────────── */
+[data-theme="blue"] {
+  --color-surface: #ffffff;
+  --color-slate-50: #f0f7ff;
+
+  --color-indigo-50: #eff6ff;
+  --color-indigo-100: #dbeafe;
+  --color-indigo-200: #bfdbfe;
+  --color-indigo-500: #3b82f6;
+  --color-indigo-600: #2563eb;
+  --color-indigo-700: #1d4ed8;
+}
+
+/* ── Green (teal accent) ─────────────────────────── */
+[data-theme="green"] {
+  --color-surface: #ffffff;
+  --color-slate-50: #f0fdf4;
+
+  --color-indigo-50: #f0fdfa;
+  --color-indigo-100: #ccfbf1;
+  --color-indigo-200: #99f6e4;
+  --color-indigo-500: #14b8a6;
+  --color-indigo-600: #0d9488;
+  --color-indigo-700: #0f766e;
+}
+
+/* ── Purple ───────────────────────────────────────── */
+[data-theme="purple"] {
+  --color-surface: #ffffff;
+  --color-slate-50: #faf5ff;
+
+  --color-indigo-50: #faf5ff;
+  --color-indigo-100: #f3e8ff;
+  --color-indigo-200: #e9d5ff;
+  --color-indigo-500: #a855f7;
+  --color-indigo-600: #9333ea;
+  --color-indigo-700: #7e22ce;
+}
