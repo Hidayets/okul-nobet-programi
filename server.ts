@@ -45,7 +45,49 @@ db.exec(`
     data TEXT NOT NULL,
     PRIMARY KEY (collection, id, kurumKodu)
   );
+
+  CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+// Migration: scope existing unscoped collections by academic year
+const academicYearMigration = db.prepare("SELECT value FROM meta WHERE key = 'academic_year_migration_v1'").get();
+if (!academicYearMigration) {
+  const month = new Date().getMonth() + 1;
+  const year = new Date().getFullYear();
+  const currentAcademicYear = month >= 9 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+  const collectionsToMigrate = ['teachers', 'classes', 'locations', 'assignments', 'absences', 'substitutions'];
+
+  db.transaction(() => {
+    for (const col of collectionsToMigrate) {
+      const rows = db.prepare('SELECT * FROM documents WHERE collection = ?').all(col) as any[];
+      if (rows.length === 0) continue;
+
+      const scopedCol = `${col}__${currentAcademicYear}`;
+      for (const row of rows) {
+        db.prepare('INSERT OR IGNORE INTO documents (collection, id, kurumKodu, data) VALUES (?, ?, ?, ?)').run(
+          scopedCol, row.id, row.kurumKodu, row.data
+        );
+      }
+      db.prepare('DELETE FROM documents WHERE collection = ?').run(col);
+    }
+
+    const schoolInfoRows = db.prepare("SELECT * FROM documents WHERE collection = 'schoolInfo' AND id = 'info'").all() as any[];
+    for (const row of schoolInfoRows) {
+      const data = JSON.parse(row.data);
+      data.academicYears = [...new Set([...(data.academicYears || []), currentAcademicYear])].sort();
+      db.prepare("UPDATE documents SET data = ? WHERE collection = 'schoolInfo' AND id = 'info' AND kurumKodu = ?").run(
+        JSON.stringify(data), row.kurumKodu
+      );
+    }
+
+    db.prepare("INSERT INTO meta (key, value) VALUES ('academic_year_migration_v1', ?)").run(new Date().toISOString());
+  })();
+
+  console.log(`Migration: scoped collections to academic year ${currentAcademicYear}`);
+}
 
 async function startServer() {
   const app = express();
@@ -103,12 +145,16 @@ async function startServer() {
 
         // Initialize School Info
         const insertDoc = db.prepare('INSERT INTO documents (collection, id, kurumKodu, data) VALUES (?, ?, ?, ?)');
+        const m = new Date().getMonth() + 1;
+        const y = new Date().getFullYear();
+        const initYear = m >= 9 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
         insertDoc.run('schoolInfo', 'info', cleanKurumKodu, JSON.stringify({
           valilik: '',
           kaymakamlik: '',
           okulAdi: '',
           okulMuduru: '',
           mudurYardimcilari: [],
+          academicYears: [initYear],
           updatedAt: new Date().toISOString()
         }));
       })();

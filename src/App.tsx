@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut, GraduationCap, ChevronDown } from 'lucide-react';
 import { cn } from './lib/utils';
-import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo } from './types';
+import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo, getCurrentAcademicYear, formatAcademicYear } from './types';
 import TeachersTab from './components/TeachersTab';
 import LocationsTab from './components/LocationsTab';
 import GeneratorTab from './components/GeneratorTab';
@@ -21,15 +21,24 @@ export default function App() {
   const { user, loading, signOut } = useAuth();
   const [showRegister, setShowRegister] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('schedule');
-  
-  // State from API
-  const [teachers, setTeachers] = useApiSync<Teacher>('teachers', []);
-  const [classes, setClasses] = useApiSync<ClassInfo>('classes', []);
-  const [locations, setLocations] = useApiSync<Location>('locations', []);
-  const [assignments, setAssignments] = useApiSync<Assignment>('assignments', []);
-  const [absences, setAbsences] = useApiSync<Absence>('absences', []);
-  const [substitutions, setSubstitutions] = useApiSync<Substitution>('substitutions', []);
-  
+
+  const [activeYear, setActiveYear] = useState<string>(() => {
+    return localStorage.getItem('activeAcademicYear') || getCurrentAcademicYear();
+  });
+
+  useEffect(() => {
+    localStorage.setItem('activeAcademicYear', activeYear);
+  }, [activeYear]);
+
+  const scopedCollection = (name: string) => `${name}__${activeYear}`;
+
+  const [teachers, setTeachers] = useApiSync<Teacher>(scopedCollection('teachers'), []);
+  const [classes, setClasses] = useApiSync<ClassInfo>(scopedCollection('classes'), []);
+  const [locations, setLocations] = useApiSync<Location>(scopedCollection('locations'), []);
+  const [assignments, setAssignments] = useApiSync<Assignment>(scopedCollection('assignments'), []);
+  const [absences, setAbsences] = useApiSync<Absence>(scopedCollection('absences'), []);
+  const [substitutions, setSubstitutions] = useApiSync<Substitution>(scopedCollection('substitutions'), []);
+
   const [schoolInfo, setSchoolInfo] = useApiDoc<SchoolInfo>('schoolInfo/info', {
     valilik: '',
     kaymakamlik: '',
@@ -37,6 +46,18 @@ export default function App() {
     okulMuduru: '',
     mudurYardimcilari: []
   });
+
+  const availableYears = useMemo(() => {
+    const years = new Set(schoolInfo.academicYears || []);
+    years.add(getCurrentAcademicYear());
+    return Array.from(years).sort();
+  }, [schoolInfo.academicYears]);
+
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(activeYear)) {
+      setActiveYear(availableYears[availableYears.length - 1]);
+    }
+  }, [availableYears, activeYear]);
 
   if (loading) {
     return (
@@ -82,9 +103,22 @@ export default function App() {
               <div className="bg-indigo-600 p-2 rounded-lg text-white">
                 <FileText className="w-5 h-5" />
               </div>
-              <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 hidden sm:block">
                 Okul Nöbet Programı
               </h1>
+              <div className="relative ml-1 sm:ml-3">
+                <select
+                  value={activeYear}
+                  onChange={(e) => setActiveYear(e.target.value)}
+                  className="appearance-none bg-indigo-50 text-indigo-700 text-sm font-semibold pl-8 pr-8 py-1.5 rounded-lg border border-indigo-200 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer transition-colors"
+                >
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>{formatAcademicYear(y)}</option>
+                  ))}
+                </select>
+                <GraduationCap className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500 pointer-events-none" />
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 pointer-events-none" />
+              </div>
             </div>
             <div className="flex items-center gap-4">
               <div className="text-sm text-slate-500 hidden sm:block">

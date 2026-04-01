@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Save, Plus, Trash2, Building2, CheckCircle2, Clock, CalendarDays, Palette, Check, KeyRound, ShieldCheck, Users, Eye, EyeOff } from 'lucide-react';
+import { Save, Plus, Trash2, Building2, CheckCircle2, Clock, CalendarDays, Palette, Check, KeyRound, ShieldCheck, Users, Eye, EyeOff, GraduationCap } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { SchoolInfo, VicePrincipal, SchoolSettings, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes } from '../types';
+import { SchoolInfo, VicePrincipal, SchoolSettings, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, getCurrentAcademicYear, formatAcademicYear } from '../types';
 import { useTheme, THEMES } from '../ThemeContext';
 import { cn } from '../lib/utils';
 
@@ -73,6 +73,71 @@ export default function SettingsTab({ schoolInfo, setSchoolInfo }: Props) {
     } finally {
       setPwLoading(false);
     }
+  };
+
+  const [newYearStart, setNewYearStart] = useState('');
+  const [copyTeachers, setCopyTeachers] = useState(true);
+  const [copyFromYear, setCopyFromYear] = useState('');
+  const [addingYear, setAddingYear] = useState(false);
+
+  const isValidYearFormat = (value: string): boolean => {
+    const match = value.match(/^(\d{4})-(\d{4})$/);
+    if (!match) return false;
+    return Number(match[2]) === Number(match[1]) + 1;
+  };
+
+  const yearAlreadyExists = (info.academicYears || []).includes(newYearStart);
+
+  useEffect(() => {
+    const years = [...(info.academicYears || [])].sort();
+    if (years.length > 0 && !years.includes(copyFromYear)) {
+      setCopyFromYear(years[years.length - 1]);
+    }
+  }, [info.academicYears, copyFromYear]);
+
+  const handleAddYear = async () => {
+    if (!newYearStart || !isValidYearFormat(newYearStart) || yearAlreadyExists) return;
+
+    setAddingYear(true);
+    try {
+      if (copyTeachers && copyFromYear && (info.academicYears || []).length > 0) {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`/api/data/teachers__${copyFromYear}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const teachers = await res.json();
+          for (const teacher of teachers) {
+            const { schedule, ...teacherInfo } = teacher;
+            await fetch(`/api/data/teachers__${newYearStart}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ ...teacherInfo, id: uuidv4() })
+            });
+          }
+        }
+      }
+
+      const updatedYears = [...(info.academicYears || []), newYearStart].sort();
+      setSchoolInfo(prev => ({ ...prev, academicYears: updatedYears }));
+      setInfo(prev => ({ ...prev, academicYears: updatedYears }));
+    } catch (err) {
+      console.error('Error adding year:', err);
+    } finally {
+      setAddingYear(false);
+    }
+  };
+
+  const handleDeleteYear = (year: string) => {
+    const years = info.academicYears || [];
+    if (years.length <= 1) return;
+    if (!confirm(`"${formatAcademicYear(year)}" dönemini listeden kaldırmak istediğinize emin misiniz?`)) return;
+    const updatedYears = years.filter(y => y !== year);
+    setSchoolInfo(prev => ({ ...prev, academicYears: updatedYears }));
+    setInfo(prev => ({ ...prev, academicYears: updatedYears }));
   };
 
   const settings: SchoolSettings = info.settings ?? DEFAULT_SCHOOL_SETTINGS;
@@ -182,6 +247,137 @@ export default function SettingsTab({ schoolInfo, setSchoolInfo }: Props) {
               </div>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Eğitim-Öğretim Dönemi */}
+      <div className="bg-surface p-8 rounded-2xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+          <div className="bg-violet-100 p-2 rounded-lg text-violet-600">
+            <GraduationCap className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-800">Eğitim-Öğretim Dönemi</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Eğitim-öğretim yıllarını yönetin. Her dönemin verileri (öğretmenler, ders programları, nöbet atamaları) birbirinden bağımsızdır.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-medium text-slate-700 mb-3">Kayıtlı Dönemler</h3>
+            {(info.academicYears || []).length === 0 ? (
+              <div className="text-sm text-slate-500 bg-slate-50 rounded-lg p-4 border border-dashed border-slate-300">
+                Henüz dönem eklenmemiş. Aşağıdan yeni bir eğitim-öğretim dönemi ekleyin.
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+                {[...(info.academicYears || [])].sort().map(year => (
+                  <li key={year} className="px-4 py-3 flex items-center justify-between bg-slate-50">
+                    <div className="flex items-center gap-3">
+                      <GraduationCap className="w-4 h-4 text-violet-500" />
+                      <span className="font-medium text-slate-700">{formatAcademicYear(year)}</span>
+                      {year === getCurrentAcademicYear() && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                          Güncel
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDeleteYear(year)}
+                      disabled={(info.academicYears || []).length <= 1}
+                      className="text-red-500 hover:text-red-700 p-1 rounded-md hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={(info.academicYears || []).length <= 1 ? 'Son dönem silinemez' : 'Dönemi listeden kaldır'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium text-slate-700 mb-3">Yeni Dönem Ekle</h3>
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={newYearStart}
+                    onChange={(e) => setNewYearStart(e.target.value)}
+                    disabled={addingYear}
+                    placeholder="Örn: 2025-2026"
+                    className={`flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white disabled:opacity-50 ${
+                      newYearStart && !isValidYearFormat(newYearStart)
+                        ? 'border-red-300 focus:ring-red-500/40'
+                        : yearAlreadyExists
+                          ? 'border-amber-300 focus:ring-amber-500/40'
+                          : 'border-slate-300'
+                    }`}
+                  />
+                  <button
+                    onClick={handleAddYear}
+                    disabled={addingYear || !newYearStart || !isValidYearFormat(newYearStart) || yearAlreadyExists}
+                    className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {addingYear ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Ekleniyor...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-5 h-5" />
+                        Ekle
+                      </>
+                    )}
+                  </button>
+                </div>
+                {newYearStart && !isValidYearFormat(newYearStart) && (
+                  <p className="text-xs text-red-500">Geçerli format: YYYY-YYYY (Örn: 2025-2026). İkinci yıl birinciden bir fazla olmalıdır.</p>
+                )}
+                {yearAlreadyExists && (
+                  <p className="text-xs text-amber-600">Bu dönem zaten kayıtlı.</p>
+                )}
+
+                {(info.academicYears || []).length > 0 && (
+                  <div className="bg-violet-50 rounded-lg p-4 border border-violet-100 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={copyTeachers}
+                        onChange={(e) => setCopyTeachers(e.target.checked)}
+                        disabled={addingYear}
+                        className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                      />
+                      <span className="text-sm font-medium text-slate-700">Önceki dönemden öğretmen listesini aktar</span>
+                    </label>
+                    {copyTeachers && (
+                      <div className="flex items-center gap-2 ml-6">
+                        <span className="text-sm text-slate-500 whitespace-nowrap">Kaynak dönem:</span>
+                        <select
+                          value={copyFromYear}
+                          onChange={(e) => setCopyFromYear(e.target.value)}
+                          disabled={addingYear}
+                          className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white disabled:opacity-50"
+                        >
+                          {[...(info.academicYears || [])].sort().map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-500 ml-6">
+                      Sadece öğretmen bilgileri (ad, iletişim, nöbet türü) aktarılır. Ders programları aktarılmaz.
+                    </p>
+                  </div>
+                )}
+              </div>
+            <p className="text-xs text-slate-400 mt-2">
+              Eğitim-öğretim yılı Eylül'de başlar, Haziran sonunda biter. Üst menüdeki dönem seçiciden aktif dönemi değiştirebilirsiniz.
+            </p>
+          </div>
         </div>
       </div>
 

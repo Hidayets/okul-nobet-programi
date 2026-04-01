@@ -124,5 +124,20 @@ export interface SchoolInfo {
   okulMuduru: string;
   mudurYardimcilari: VicePrincipal[];
   settings?: SchoolSettings;
+  academicYears?: string[];
+}
+
+export function getCurrentAcademicYear(): string {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  if (month >= 9) {
+    return `${year}-${year + 1}`;
+  }
+  return `${year - 1}-${year}`;
+}
+
+export function formatAcademicYear(yearId: string): string {
+  return `${yearId} Eğitim-Öğretim Yılı`;
 }
 

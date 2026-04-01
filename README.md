@@ -4,12 +4,13 @@ Okullarda nöbet çizelgesi oluşturma, ders programı yönetimi ve devamsız ö
 
 ## Özellikler
 
+- **Eğitim-Öğretim Dönemi** — Her yılın verileri birbirinden bağımsız, dönemler arası öğretmen listesi aktarma, header'dan hızlı dönem geçişi
 - **Kurum Yönetimi** — Kurum kodu ile kayıt, admin/öğretmen giriş sistemi
 - **Öğretmen Yönetimi** — Ekleme, düzenleme, toplu silme, Excel'den aktarma, Sabit/Hareketli/Nöbet Dışı türleri
 - **Ders Programı** — Excel'den yükleme veya hücre hücre elle girme, öğretmen ve sınıf programları karşılaştırma
 - **Nöbet Çizelgesi Oluşturma** — Dönerli ve merdiven rotasyon modları
 - **Günlük İşlemler** — Devamsız öğretmen girişi, boş kalan derslerin nöbetçiler arasında adil otomatik dağılımı
-- **Ayarlar** — Okul bilgileri, ders saatleri, tema seçimi (Açık/Koyu/Mavi/Yeşil/Mor), şifre yönetimi
+- **Ayarlar** — Okul bilgileri, ders saatleri, tema seçimi (Açık/Koyu/Mavi/Yeşil/Mor), şifre yönetimi, eğitim-öğretim dönemi yönetimi
 
 ## Teknolojiler
 
