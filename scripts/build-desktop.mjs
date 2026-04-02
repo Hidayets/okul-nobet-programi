@@ -9,7 +9,7 @@
  *  3. better-sqlite3 native binding'i kopyala
  *  4. @yao-pkg/pkg ile tek .exe oluştur  →  release/OkulNobet.exe
  *  5. dist/ klasörünü release/ yanına kopyala
- *  6. Inno Setup varsa installer'ı derle  →  release/OkulNobetKurulum.exe
+ *  6. electron-builder ile Electron installer oluştur
  */
 
 import { execSync } from 'child_process';
@@ -45,8 +45,6 @@ console.log('\n═══ Adım 2: Server esbuild ile derleniyor…');
 clean(TMP);
 mkdirSync(TMP, { recursive: true });
 
-// CJS format: pkg ile tam uyumlu, import.meta.url => __filename dönüşümü otomatik,
-// NODE_ENV=production ile vite bağımlılığı tree-shake edilir.
 run(
   `npx esbuild server.ts ` +
   `--bundle --platform=node --format=cjs --target=node22 ` +
@@ -63,8 +61,6 @@ const path   = require('path');
 const fs     = require('fs');
 const Module = require('module');
 
-// better-sqlite3 native binding'i exe yanındaki dosyadan yükle
-// CJS Module._load hooku: require() zinciri üzerinden çalışır
 if (process.pkg) {
   const _orig = Module._load.bind(Module);
   Module._load = function (request, parent, isMain) {
@@ -105,18 +101,12 @@ mkdirSync(RELEASE, { recursive: true });
 cpSync(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'), { recursive: true });
 copyFileSync(bindingSrc, path.join(RELEASE, 'better_sqlite3.node'));
 
-const iconSrc = path.join(ROOT, 'build', 'icon.ico');
-if (existsSync(iconSrc)) copyFileSync(iconSrc, path.join(RELEASE, 'icon.ico'));
-
 // ─── 6. pkg ile exe oluştur ───────────────────────────────────────────────────
 console.log('\n═══ Adım 6: pkg ile Windows yürütülebilir dosyası oluşturuluyor…');
 const exeOut = path.join(RELEASE, 'OkulNobet.exe');
 
-// pkg'yi doğrudan Node.js API üzerinden çalıştırıyoruz
-// (execSync üzerinde Windows güvenlik mekanizması çakışmasını önler)
-const { execSync: _exec } = await import('child_process');
 try {
-  _exec(
+  execSync(
     `npx @yao-pkg/pkg "${path.join(TMP, 'entry.cjs')}" ` +
     `--targets node22-win-x64 --no-bytecode --public ` +
     `--output "${exeOut}"`,
@@ -130,22 +120,14 @@ try {
   console.warn('⚠ pkg tamamlandı (uyarıyla çıktı ama exe oluşturuldu).');
 }
 
-// ─── 7. Inno Setup (isteğe bağlı) ────────────────────────────────────────────
-const iscc = [
-  'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe',
-  'C:\\Program Files\\Inno Setup 6\\ISCC.exe',
-].find(existsSync);
-
-const issFile = path.join(ROOT, 'installer', 'setup.iss');
-
-if (iscc && existsSync(issFile)) {
-  console.log('\n═══ Adım 7: Inno Setup ile kurulum paketi oluşturuluyor…');
-  run(`"${iscc}" "${issFile}"`);
-  console.log('\n✔ Kurulum paketi: release/OkulNobetKurulum.exe');
-} else {
-  console.log('\n⚠ Inno Setup bulunamadı veya setup.iss eksik.');
-  console.log('  Inno Setup\'u https://jrsoftware.org/isinfo.php adresinden yükleyin,');
-  console.log('  ardından tekrar çalıştırın. Ya da release/ klasörünü zip olarak dağıtın.');
+// ─── 7. Electron-builder ile installer oluştur ──────────────────────────────
+console.log('\n═══ Adım 7: Electron-builder ile kurulum paketi oluşturuluyor…');
+try {
+  run('npx electron-builder --win --config');
+  console.log('\n✔ Electron installer oluşturuldu: release/ klasörüne bakın.');
+} catch (e) {
+  console.error('⚠ electron-builder hatası:', e.message);
+  console.log('  release/ klasöründeki OkulNobet.exe doğrudan kullanılabilir.');
 }
 
 // ─── Temizlik ─────────────────────────────────────────────────────────────────
@@ -153,6 +135,6 @@ clean(TMP);
 
 console.log('\n═══════════════════════════════════════════════════');
 console.log('  Build tamamlandı!');
-console.log(`  Çalıştırılabilir: ${exeOut}`);
-console.log('  dist/ ve better_sqlite3.node exe\'nin yanında olmalı.');
+console.log(`  Server EXE: ${exeOut}`);
+console.log('  Installer: release/ klasörüne bakın');
 console.log('═══════════════════════════════════════════════════\n');

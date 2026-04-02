@@ -26,6 +26,12 @@
       "electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
     "extraFiles": [
       {
         "from": "release/OkulNobet.exe",
@@ -39,7 +45,7 @@
     "asar": true,
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -48,7 +54,9 @@
       "language": "1055",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Okul Nöbet Programı"
+      "shortcutName": "Okul Nöbet Programı",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "mac": {
       "target": "dmg"

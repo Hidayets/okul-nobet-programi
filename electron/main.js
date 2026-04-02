@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, shell, Tray, Menu } from 'electron';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,9 +12,16 @@ const APP_URL = `http://localhost:${PORT}`;
 
 let mainWindow   = null;
 let serverProcess = null;
+let tray = null;
 
-// ─── Sunucu hazır olana kadar bekle ──────────────────────────────────────────
-async function waitForServer(maxMs = 15000) {
+function getIconPath() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'build', 'icon.ico');
+  }
+  return path.join(process.resourcesPath, 'icon.ico');
+}
+
+async function waitForServer(maxMs = 20000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     try {
@@ -26,18 +33,16 @@ async function waitForServer(maxMs = 15000) {
   return false;
 }
 
-// ─── Üretim modunda sunucuyu arka planda başlat ───────────────────────────────
 function startServer() {
-  if (isDev) return; // Geliştirmede sunucu zaten dışarıda çalışıyor
+  if (isDev) return;
 
-  // Electron exe'sinin yanındaki OkulNobet.exe'yi bul
-  const exeDir    = path.dirname(app.getPath('exe'));
+  const exeDir = path.dirname(app.getPath('exe'));
   const serverExe = path.join(exeDir, 'OkulNobet.exe');
 
   serverProcess = spawn(serverExe, [], {
     detached: false,
     stdio: 'ignore',
-    windowsHide: true,   // CMD penceresi gösterme
+    windowsHide: true,
   });
 
   serverProcess.on('error', (err) => {
@@ -45,29 +50,29 @@ function startServer() {
   });
 }
 
-// ─── Ana pencereyi oluştur ───────────────────────────────────────────────────
 function createWindow() {
+  const iconPath = getIconPath();
+
   mainWindow = new BrowserWindow({
     width: 1366,
     height: 768,
     minWidth: 1024,
     minHeight: 600,
     title: 'Okul Nöbet Programı',
-    icon: path.join(__dirname, '../build/icon.ico'),
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    // Pencere yüklenene kadar gizli tut
     show: false,
     backgroundColor: '#f8fafc',
+    autoHideMenuBar: true,
   });
 
-  // Menü çubuğunu gizle (F11 ile tam ekran hâlâ çalışır)
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.removeMenu();
 
-  // Hazır olunca göster
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     mainWindow.focus();
@@ -75,23 +80,22 @@ function createWindow() {
 
   mainWindow.loadURL(APP_URL);
 
-  // Harici linkleri tarayıcıda aç, uygulama penceresinde değil
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(APP_URL)) shell.openExternal(url);
+    if (url.startsWith('http') && !url.startsWith(APP_URL)) {
+      shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-// ─── Uygulama hazır ──────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   startServer();
 
-  // Sunucunun ayağa kalkmasını bekle
   const ready = await waitForServer();
   if (!ready) {
-    console.error('Sunucu 15 saniye içinde başlamadı.');
+    console.error('Sunucu 20 saniye içinde başlamadı.');
     app.quit();
     return;
   }
@@ -103,11 +107,17 @@ app.whenReady().then(async () => {
   });
 });
 
-// ─── Temizlik ─────────────────────────────────────────────────────────────────
 app.on('window-all-closed', () => {
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
   }
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  if (serverProcess) {
+    serverProcess.kill();
+    serverProcess = null;
+  }
 });
