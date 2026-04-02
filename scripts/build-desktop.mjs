@@ -49,7 +49,7 @@ run(
   `npx esbuild server.ts ` +
   `--bundle --platform=node --format=cjs --target=node22 ` +
   `--define:process.env.NODE_ENV='"production"' ` +
-  `--external:better-sqlite3 ` +
+  `--external:better-sqlite3 --external:lightningcss --external:vite ` +
   `--outfile=${path.join(TMP, 'server.cjs')}`
 );
 
