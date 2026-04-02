@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
+import nodemailer from 'nodemailer';
 
 // CJS (pkg/esbuild) ve ESM (tsx dev) ortamlarında güvenle çalışır
 const __dirname = process.cwd();
@@ -382,6 +383,74 @@ async function startServer() {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to fetch document' });
+    }
+  });
+
+  // Email: Send notifications to teachers
+  app.post('/api/send-email', authenticateToken, async (req: any, res) => {
+    const { kurumKodu } = req.user;
+
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Yalnızca admin e-posta gönderebilir.' });
+    }
+
+    const { gmailEmail, gmailAppPassword, recipients } = req.body;
+
+    if (!gmailEmail || !gmailAppPassword) {
+      return res.status(400).json({ error: 'Gmail ayarları eksik. Ayarlar sayfasından Gmail adresinizi ve uygulama şifrenizi girin.' });
+    }
+
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'Gönderilecek öğretmen listesi boş.' });
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: gmailEmail,
+          pass: gmailAppPassword.replace(/\s/g, ''),
+        },
+      });
+
+      await transporter.verify();
+
+      const results: { email: string; success: boolean; error?: string }[] = [];
+
+      for (const recipient of recipients) {
+        if (!recipient.email) {
+          results.push({ email: '(yok)', success: false, error: 'E-posta adresi eksik' });
+          continue;
+        }
+
+        try {
+          await transporter.sendMail({
+            from: `"Nöbet Programı" <${gmailEmail}>`,
+            to: recipient.email,
+            subject: recipient.subject || 'Nöbet Görev Bilgilendirmesi',
+            html: recipient.html || recipient.text || '',
+          });
+          results.push({ email: recipient.email, success: true });
+        } catch (err: any) {
+          results.push({ email: recipient.email, success: false, error: err.message });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+
+      res.json({
+        success: true,
+        sent: successCount,
+        failed: failCount,
+        details: results,
+      });
+    } catch (err: any) {
+      console.error('Email error:', err);
+      if (err.code === 'EAUTH') {
+        return res.status(401).json({ error: 'Gmail kimlik doğrulama hatası. E-posta adresinizi ve uygulama şifrenizi kontrol edin.' });
+      }
+      res.status(500).json({ error: `E-posta gönderilirken hata oluştu: ${err.message}` });
     }
   });
 

@@ -10,7 +10,6 @@ export interface Teacher {
   id: string;
   name: string;
   email?: string;
-  phone?: string;
   dutyType?: DutyType;
   // schedule[dayOfWeek][hour] = className
   // dayOfWeek: 1 (Mon) to 5 (Fri)
@@ -131,6 +130,8 @@ export interface SchoolInfo {
   mudurYardimcilari: VicePrincipal[];
   settings?: SchoolSettings;
   academicYears?: string[];
+  gmailEmail?: string;
+  gmailAppPassword?: string;
 }
 
 export function getCurrentAcademicYear(): string {

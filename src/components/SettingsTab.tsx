@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Save, Plus, Trash2, Building2, CheckCircle2, Clock, CalendarDays, Palette, Check, KeyRound, ShieldCheck, Users, Eye, EyeOff, GraduationCap } from 'lucide-react';
+import { Save, Plus, Trash2, Building2, CheckCircle2, Clock, CalendarDays, Palette, Check, KeyRound, ShieldCheck, Users, Eye, EyeOff, GraduationCap, Mail } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { SchoolInfo, VicePrincipal, SchoolSettings, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, getCurrentAcademicYear, formatAcademicYear } from '../types';
 import { useTheme, THEMES } from '../ThemeContext';
@@ -754,6 +754,52 @@ export default function SettingsTab({ schoolInfo, setSchoolInfo }: Props) {
             Haftada <span className="font-semibold text-slate-700">{settings.schoolDays.length}</span> gün ders yapılıyor.
             Bu ayar nöbet programı oluşturma ve diğer hesaplamalarda otomatik kullanılacaktır.
           </p>
+        </div>
+      </div>
+
+      {/* Gmail Yapılandırma */}
+      <div className="bg-surface p-8 rounded-2xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+          <div className="bg-red-100 p-2 rounded-lg text-red-600">
+            <Mail className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-800">E-posta Bildirimi (Gmail)</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Nöbet programını öğretmenlere e-posta ile göndermek için Gmail ayarları</p>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Gmail Adresi</label>
+            <input
+              type="email"
+              value={info.gmailEmail || ''}
+              onChange={(e) => setInfo({ ...info, gmailEmail: e.target.value })}
+              placeholder="ornek@gmail.com"
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Gmail Uygulama Şifresi</label>
+            <input
+              type="password"
+              value={info.gmailAppPassword || ''}
+              onChange={(e) => setInfo({ ...info, gmailAppPassword: e.target.value })}
+              placeholder="xxxx xxxx xxxx xxxx"
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <h4 className="text-sm font-semibold text-amber-800 mb-2">Uygulama Şifresi Nasıl Alınır?</h4>
+            <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
+              <li>Google Hesabınıza giriş yapın (myaccount.google.com)</li>
+              <li>Güvenlik → 2 Adımlı Doğrulama'yı açın (zaten açıksa atlayın)</li>
+              <li>Güvenlik → "Uygulama Şifreleri" bölümüne gidin</li>
+              <li>Uygulama adı olarak "Nöbet Programı" yazıp "Oluştur" deyin</li>
+              <li>Gösterilen 16 haneli şifreyi yukarıdaki alana yapıştırın</li>
+            </ol>
+          </div>
         </div>
       </div>
 

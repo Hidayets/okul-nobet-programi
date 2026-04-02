@@ -1509,7 +1509,7 @@ export default function SchedulesTab({ teachers, setTeachers, classes, setClasse
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {teachersWithSchedule.map(t => {
                           const totalLessons = Object.values(t.schedule || {}).reduce(
-                            (sum, daySchedule) => sum + Object.keys(daySchedule).length, 0
+                            (sum: number, daySchedule: any) => sum + Object.keys(daySchedule).length, 0
                           );
                           const isViewing = t.id === selectedTeacherId;
                           const isChecked = checkedTeacherIds.has(t.id);
@@ -1668,7 +1668,7 @@ export default function SchedulesTab({ teachers, setTeachers, classes, setClasse
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {classesWithSchedule.map(c => {
                           const totalLessons = Object.values(c.schedule || {}).reduce(
-                            (sum, daySchedule) => sum + Object.keys(daySchedule).length, 0
+                            (sum: number, daySchedule: any) => sum + Object.keys(daySchedule).length, 0
                           );
                           const isViewing = c.id === selectedClassId;
                           const isChecked = checkedClassIds.has(c.id);

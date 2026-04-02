@@ -12,14 +12,12 @@ interface Props {
 export default function TeachersTab({ teachers, setTeachers }: Props) {
   const [newTeacherName, setNewTeacherName] = useState('');
   const [newTeacherEmail, setNewTeacherEmail] = useState('');
-  const [newTeacherPhone, setNewTeacherPhone] = useState('');
   const [newTeacherDutyType, setNewTeacherDutyType] = useState<DutyType>('sabit');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
-  const [editPhone, setEditPhone] = useState('');
   const [editDutyType, setEditDutyType] = useState<DutyType>('sabit');
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -62,7 +60,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
       id: uuidv4(),
       name: newTeacherName.trim(),
       email: newTeacherEmail.trim(),
-      phone: newTeacherPhone.trim(),
       dutyType: newTeacherDutyType,
       schedule: {},
     };
@@ -70,7 +67,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
     setTeachers([...teachers, newTeacher]);
     setNewTeacherName('');
     setNewTeacherEmail('');
-    setNewTeacherPhone('');
     setNewTeacherDutyType('sabit');
   };
 
@@ -82,7 +78,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
     setEditingTeacherId(teacher.id);
     setEditName(teacher.name);
     setEditEmail(teacher.email || '');
-    setEditPhone(teacher.phone || '');
     setEditDutyType(teacher.dutyType || 'sabit');
   };
 
@@ -92,7 +87,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
       ...t,
       name: editName.trim(),
       email: editEmail.trim(),
-      phone: editPhone.trim(),
       dutyType: editDutyType
     } : t));
     setEditingTeacherId(null);
@@ -148,7 +142,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
           id: uuidv4(),
           name: row['Ad Soyad'] || row['Name'] || 'İsimsiz',
           email: row['E-posta'] || row['Email'] || '',
-          phone: row['Telefon'] || row['Phone'] || '',
           dutyType,
           schedule,
         };
@@ -183,7 +176,7 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
           </div>
         </div>
         
-        <form onSubmit={handleAddTeacher} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <form onSubmit={handleAddTeacher} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <input
             type="text"
             value={newTeacherName}
@@ -197,13 +190,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
             value={newTeacherEmail}
             onChange={(e) => setNewTeacherEmail(e.target.value)}
             placeholder="E-posta"
-            className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          />
-          <input
-            type="tel"
-            value={newTeacherPhone}
-            onChange={(e) => setNewTeacherPhone(e.target.value)}
-            placeholder="Telefon"
             className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
           <div className="flex gap-3">
@@ -226,7 +212,7 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
           </div>
         </form>
         <p className="text-xs text-slate-500 mt-3">
-          * Excel aktarımı için sütun başlıkları: "Ad Soyad", "E-posta", "Telefon", "Nöbet Tipi", "Pzt-1", vb. olmalıdır.
+          * Excel aktarımı için sütun başlıkları: "Ad Soyad", "E-posta", "Nöbet Tipi", "Pzt-1", vb. olmalıdır.
         </p>
       </div>
 
@@ -286,7 +272,7 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
             {[...teachers].sort((a, b) => a.name.localeCompare(b.name, 'tr')).map((teacher) => (
               <li key={teacher.id} className={`px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50 transition-colors gap-4 ${selectedIds.has(teacher.id) ? 'bg-indigo-50/50' : ''}`}>
                 {editingTeacherId === teacher.id ? (
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
                     <input
                       type="text"
                       value={editName}
@@ -300,13 +286,6 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
                       value={editEmail}
                       onChange={(e) => setEditEmail(e.target.value)}
                       placeholder="E-posta"
-                      className="px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                    />
-                    <input
-                      type="tel"
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      placeholder="Telefon"
                       className="px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                     />
                     <div className="flex gap-2">
@@ -360,10 +339,9 @@ export default function TeachersTab({ teachers, setTeachers }: Props) {
                             {teacher.dutyType === 'nobetDisi' ? 'Nöbet Dışı' : teacher.dutyType === 'hareketli' ? 'Hareketli' : 'Sabit'}
                           </span>
                         </div>
-                        <div className="text-sm text-slate-500 flex gap-4 mt-1">
-                          {teacher.email && <span>{teacher.email}</span>}
-                          {teacher.phone && <span>{teacher.phone}</span>}
-                        </div>
+                        {teacher.email && (
+                          <div className="text-sm text-slate-500 mt-1">{teacher.email}</div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
