@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, KeyRound, UserCircle2, Loader2 } from 'lucide-react';
+import { Building2, KeyRound, UserCircle2, Loader2, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
 interface Props {
@@ -13,6 +13,13 @@ export default function Login({ onSwitchToRegister }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotKurum, setForgotKurum] = useState('');
+  const [forgotNewPw, setForgotNewPw] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +62,139 @@ export default function Login({ onSwitchToRegister }: Props) {
       setLoading(false);
     }
   };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = forgotKurum.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (!clean || !forgotNewPw) {
+      setForgotError('Lütfen tüm alanları doldurun.');
+      return;
+    }
+    if (forgotNewPw.length < 6) {
+      setForgotError('Şifre en az 6 karakter olmalıdır.');
+      return;
+    }
+
+    setForgotLoading(true);
+    setForgotError('');
+
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kurumKodu: clean, newPassword: forgotNewPw })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setForgotSuccess(true);
+      } else {
+        setForgotError(data.error || 'Şifre sıfırlanamadı.');
+      }
+    } catch {
+      setForgotError('Bağlantı hatası. Lütfen tekrar deneyin.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  if (showForgot) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="flex justify-center">
+            <div className="bg-amber-500 p-3 rounded-xl shadow-lg">
+              <KeyRound className="w-10 h-10 text-white" />
+            </div>
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">
+            Şifremi Unuttum
+          </h2>
+          <p className="mt-2 text-center text-sm text-slate-600">
+            Admin şifrenizi sıfırlamak için kurum kodunuzu girin
+          </p>
+        </div>
+
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-surface py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
+            {forgotSuccess ? (
+              <div className="text-center space-y-4">
+                <div className="flex justify-center">
+                  <CheckCircle2 className="w-16 h-16 text-emerald-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-800">Şifre Sıfırlandı</h3>
+                <p className="text-sm text-slate-600">Admin şifreniz başarıyla güncellendi. Yeni şifrenizle giriş yapabilirsiniz.</p>
+                <button
+                  onClick={() => { setShowForgot(false); setForgotSuccess(false); setForgotKurum(''); setForgotNewPw(''); }}
+                  className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+                >
+                  Giriş Sayfasına Dön
+                </button>
+              </div>
+            ) : (
+              <form className="space-y-6" onSubmit={handleForgotPassword}>
+                {forgotError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+                    {forgotError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Kurum Kodu</label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Building2 className="h-5 w-5 text-slate-400" />
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={forgotKurum}
+                      onChange={(e) => setForgotKurum(e.target.value)}
+                      className="focus:ring-amber-500 focus:border-amber-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                      placeholder="Kayıt olduğunuz kurum kodu"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Yeni Admin Şifresi</label>
+                  <div className="mt-1 relative rounded-md shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <KeyRound className="h-5 w-5 text-slate-400" />
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      value={forgotNewPw}
+                      onChange={(e) => setForgotNewPw(e.target.value)}
+                      className="focus:ring-amber-500 focus:border-amber-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                      placeholder="En az 6 karakter"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={forgotLoading}
+                  className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 disabled:opacity-70"
+                >
+                  {forgotLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Şifreyi Sıfırla'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setShowForgot(false); setForgotError(''); }}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-4 text-sm font-medium text-slate-600 hover:text-slate-800"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Giriş sayfasına dön
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -150,6 +290,18 @@ export default function Login({ onSwitchToRegister }: Props) {
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Giriş Yap'}
               </button>
             </div>
+
+            {role === 'admin' && (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => setShowForgot(true)}
+                  className="text-sm text-indigo-600 hover:text-indigo-500 font-medium"
+                >
+                  Şifremi Unuttum
+                </button>
+              </div>
+            )}
           </form>
 
           <div className="mt-6">

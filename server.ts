@@ -204,6 +204,36 @@ async function startServer() {
     }
   });
 
+  // Auth: Reset Admin Password (forgot password)
+  app.post('/api/auth/reset-password', (req, res) => {
+    const { kurumKodu, newPassword } = req.body;
+
+    if (!kurumKodu || !newPassword) {
+      return res.status(400).json({ error: 'Eksik alanlar.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Yeni şifre en az 6 karakter olmalıdır.' });
+    }
+
+    const cleanKurumKodu = kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const email = `admin@${cleanKurumKodu}.nobet.app`;
+
+    try {
+      const user: any = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+      if (!user) {
+        return res.status(404).json({ error: 'Bu kurum koduna ait kayıt bulunamadı.' });
+      }
+
+      const newHash = bcrypt.hashSync(newPassword, 10);
+      db.prepare('UPDATE users SET passwordHash = ? WHERE email = ?').run(newHash, email);
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Şifre sıfırlanırken bir hata oluştu.' });
+    }
+  });
+
   // Auth: Change Password
   app.post('/api/auth/change-password', authenticateToken, (req: any, res) => {
     const { targetRole, currentPassword, newPassword } = req.body;
