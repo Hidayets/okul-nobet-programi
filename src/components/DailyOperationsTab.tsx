@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { format, parseISO, getDay } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { v4 as uuidv4 } from 'uuid';
-import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock } from 'lucide-react';
+import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer } from 'lucide-react';
 import { Teacher, Assignment, Absence, Substitution, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes } from '../types';
 
 interface Props {
@@ -183,6 +183,92 @@ export default function DailyOperationsTab({
 
   const formattedDate = format(parseISO(selectedDate), 'dd MMMM yyyy EEEE', { locale: tr });
 
+  const handlePrintSubstitutions = () => {
+    const subs = dailySubstitutions
+      .filter(s => s.substituteTeacherId)
+      .sort((a, b) => a.hour - b.hour);
+
+    if (subs.length === 0) {
+      alert('Yazdırılacak görevlendirme bulunmuyor.');
+      return;
+    }
+
+    const rows = subs.map((sub, i) => {
+      const absent = teachers.find(t => t.id === sub.absentTeacherId);
+      const substitute = teachers.find(t => t.id === sub.substituteTeacherId);
+      const lt = lessonTimes.find(l => l.lesson === sub.hour);
+      return `<tr>
+        <td>${i + 1}</td>
+        <td>${substitute?.name || '-'}</td>
+        <td>${absent?.name || '-'}</td>
+        <td>${sub.className}</td>
+        <td>${sub.hour}. Ders${lt ? ` (${lt.start}-${lt.end})` : ''}</td>
+      </tr>`;
+    }).join('');
+
+    const okulAdi = schoolInfo.okulAdi || '';
+    const mudur = schoolInfo.okulMuduru || '';
+    const yardimcilar = (schoolInfo.mudurYardimcilari || []).map(v => v.name);
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Görevlendirme Çizelgesi</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; }
+  .header { text-align: center; margin-bottom: 24px; }
+  .header h1 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .header h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .header .date { font-size: 13px; color: #475569; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { border: 1.5px solid #334155; padding: 8px 12px; text-align: left; font-size: 13px; }
+  th { background-color: #f1f5f9; font-weight: 700; text-align: center; }
+  td:first-child { text-align: center; width: 40px; }
+  td:last-child { text-align: center; }
+  .signatures { display: flex; justify-content: space-between; margin-top: 60px; padding: 0 20px; }
+  .sig-box { text-align: center; min-width: 160px; }
+  .sig-box .title { font-size: 11px; color: #64748b; margin-bottom: 50px; }
+  .sig-box .name { font-size: 12px; font-weight: 600; border-top: 1px solid #94a3b8; padding-top: 4px; }
+  @media print { body { padding: 20px; } }
+</style></head><body>
+  <div class="header">
+    ${okulAdi ? `<h1>${okulAdi}</h1>` : ''}
+    <h2>Ders Görevlendirme Çizelgesi</h2>
+    <div class="date">${formattedDate}</div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Sıra</th>
+        <th>Görevli Öğretmen</th>
+        <th>Gelmeyen Öğretmen</th>
+        <th>Sınıf</th>
+        <th>Ders Saati</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="signatures">
+    ${yardimcilar.length > 0 ? yardimcilar.map(name => `
+      <div class="sig-box">
+        <div class="title">Müdür Yardımcısı</div>
+        <div class="name">${name}</div>
+      </div>`).join('') : ''}
+    ${mudur ? `
+    <div class="sig-box">
+      <div class="title">Okul Müdürü</div>
+      <div class="name">${mudur}</div>
+    </div>` : ''}
+  </div>
+</body></html>`);
+
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-surface p-6 rounded-xl shadow-sm border border-slate-200">
@@ -317,16 +403,27 @@ export default function DailyOperationsTab({
         <div className="bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
             <h3 className="font-semibold text-slate-800">Ders Görevlendirmeleri</h3>
-            {isAdmin && (
-              <button
-                onClick={handleAutoAssign}
-                disabled={dailyAbsences.length === 0}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Otomatik Dağıt
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {dailySubstitutions.length > 0 && (
+                <button
+                  onClick={handlePrintSubstitutions}
+                  className="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-colors"
+                >
+                  <Printer className="w-4 h-4" />
+                  Yazdır
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={handleAutoAssign}
+                  disabled={dailyAbsences.length === 0}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Otomatik Dağıt
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="p-6 flex-1 overflow-y-auto">
