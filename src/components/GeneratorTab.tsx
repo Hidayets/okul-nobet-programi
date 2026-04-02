@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { format, addDays, isBefore, isSameDay, getDay, parseISO, startOfWeek } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { Calendar as CalendarIcon, Settings2, AlertCircle, ArrowRightLeft, Repeat, MapPin } from 'lucide-react';
-import { Teacher, Location, Assignment, SchoolInfo, DEFAULT_SCHOOL_SETTINGS } from '../types';
+import { Teacher, Location, Assignment, SchoolInfo } from '../types';
 
 interface Props {
   teachers: Teacher[];
@@ -12,16 +12,6 @@ interface Props {
   schoolInfo: SchoolInfo;
 }
 
-const DAYS_OF_WEEK = [
-  { id: 1, label: 'Pazartesi' },
-  { id: 2, label: 'Salı' },
-  { id: 3, label: 'Çarşamba' },
-  { id: 4, label: 'Perşembe' },
-  { id: 5, label: 'Cuma' },
-  { id: 6, label: 'Cumartesi' },
-  { id: 0, label: 'Pazar' },
-];
-
 const DAY_SHORT: Record<number, string> = {
   1: 'Pzt', 2: 'Sal', 3: 'Çar', 4: 'Per', 5: 'Cum', 6: 'Cmt', 0: 'Paz'
 };
@@ -29,22 +19,12 @@ const DAY_SHORT: Record<number, string> = {
 type RotationMode = 'locationBased' | 'standard' | 'staircase';
 
 export default function GeneratorTab({ teachers, locations, onGenerate, onSuccess, schoolInfo }: Props) {
-  const settings = schoolInfo.settings ?? DEFAULT_SCHOOL_SETTINGS;
   const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(addDays(new Date(), 30), 'yyyy-MM-dd'));
-  const [activeDays, setActiveDays] = useState<number[]>(settings.schoolDays);
-  const [rotationMode, setRotationMode] = useState<RotationMode>('locationBased');
+  const [rotationMode, setRotationMode] = useState<RotationMode>('standard');
   const [error, setError] = useState<string | null>(null);
 
   const totalDuties = locations.reduce((sum, loc) => sum + (loc.duties?.length || 0), 0);
-
-  const toggleDay = (dayId: number) => {
-    setActiveDays(prev =>
-      prev.includes(dayId)
-        ? prev.filter(d => d !== dayId)
-        : [...prev, dayId]
-    );
-  };
 
   const handleGenerate = () => {
     setError(null);
@@ -66,25 +46,15 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
       return generateLocationBased(start, end);
     }
 
-    const eligibleTeachers = teachers.filter(t => t.dutyType !== 'nobetDisi');
-
-    if (eligibleTeachers.length === 0) {
-      setError('Nöbet tutabilecek öğretmen bulunmuyor.');
-      return;
-    }
-    if (activeDays.length === 0) {
-      setError('Lütfen en az bir nöbet günü seçin.');
-      return;
-    }
-    if (eligibleTeachers.length < locations.length) {
-      setError('Nöbet tutacak öğretmen sayısı, nöbet yeri sayısından az olamaz.');
+    if (totalDuties === 0) {
+      setError('Nöbet yerlerine henüz görevli atanmamış. "Nöbet Yerleri" sekmesinden öğretmen ve gün ataması yapın.');
       return;
     }
 
     if (rotationMode === 'standard') {
-      generateStandard(start, end, eligibleTeachers);
+      generateStandard(start, end);
     } else {
-      generateStaircase(start, end, eligibleTeachers);
+      generateStaircase(start, end);
     }
   };
 
@@ -125,98 +95,142 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
     onSuccess();
   };
 
-  const generateStandard = (start: Date, end: Date, eligibleTeachers: Teacher[]) => {
-    let teacherQueue = [...eligibleTeachers].sort(() => Math.random() - 0.5);
+  const generateStandard = (start: Date, end: Date) => {
     const newAssignments: Assignment[] = [];
+
+    // Her gün için hangi lokasyonlarda hangi öğretmenler var — sıralı
+    const dayDutyMap = new Map<number, { teacherId: string; locationId: string }[]>();
+
+    for (const location of locations) {
+      for (const duty of (location.duties || [])) {
+        if (!dayDutyMap.has(duty.day)) dayDutyMap.set(duty.day, []);
+        dayDutyMap.get(duty.day)!.push({
+          teacherId: duty.teacherId,
+          locationId: location.id,
+        });
+      }
+    }
+
+    const refWeekStart = startOfWeek(start, { weekStartsOn: 1 }).getTime();
 
     let currentDate = start;
     while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
       const dayOfWeek = getDay(currentDate);
-      if (activeDays.includes(dayOfWeek)) {
+      const dutiesForDay = dayDutyMap.get(dayOfWeek);
+
+      if (dutiesForDay && dutiesForDay.length > 0) {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
-        locations.forEach(location => {
-          const assignedTeacher = teacherQueue.shift()!;
+        const curWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 }).getTime();
+        const weekOffset = Math.round((curWeekStart - refWeekStart) / (7 * 24 * 60 * 60 * 1000));
+
+        const locIds = dutiesForDay.map(d => d.locationId);
+        const teacherIds = dutiesForDay.map(d => d.teacherId);
+        const count = dutiesForDay.length;
+
+        // Her hafta öğretmenler bir sonraki nöbet yerine kayar
+        for (let i = 0; i < count; i++) {
+          const shiftedLocIndex = (i + weekOffset) % count;
+          const actualLocIndex = shiftedLocIndex < 0 ? shiftedLocIndex + count : shiftedLocIndex;
+
           newAssignments.push({
             id: uuidv4(),
             date: dateStr,
-            locationId: location.id,
-            teacherId: assignedTeacher.id
-          });
-          teacherQueue.push(assignedTeacher);
-        });
-      }
-      currentDate = addDays(currentDate, 1);
-    }
-
-    onGenerate(newAssignments);
-    onSuccess();
-  };
-
-  const generateStaircase = (start: Date, end: Date, eligibleTeachers: Teacher[]) => {
-    let teacherQueue = [...eligibleTeachers].sort(() => Math.random() - 0.5);
-    const newAssignments: Assignment[] = [];
-
-    const sortedDays = [...activeDays].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
-    const D = sortedDays.length;
-    const L = locations.length;
-    const slotsPerWeek = D * L;
-
-    const refWeekStart = startOfWeek(start, { weekStartsOn: 1 }).getTime();
-    const weekMap = new Map<number, Map<number, string>>();
-
-    let currentDate = start;
-    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
-      const dow = getDay(currentDate);
-      if (activeDays.includes(dow)) {
-        const curWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 }).getTime();
-        const weekIdx = Math.round((curWeekStart - refWeekStart) / (7 * 24 * 60 * 60 * 1000));
-        if (!weekMap.has(weekIdx)) weekMap.set(weekIdx, new Map());
-        weekMap.get(weekIdx)!.set(dow, format(currentDate, 'yyyy-MM-dd'));
-      }
-      currentDate = addDays(currentDate, 1);
-    }
-
-    const sortedWeeks = [...weekMap.entries()].sort(([a], [b]) => a - b);
-
-    for (const [weekIdx, dates] of sortedWeeks) {
-      const weekAssignments: { dateStr: string; locationId: string }[] = [];
-
-      for (let slot = 0; slot < slotsPerWeek; slot++) {
-        const abstractDayIdx = Math.floor(slot / L);
-        const abstractLocIdx = slot % L;
-        const actualDayIdx = (abstractDayIdx + weekIdx) % D;
-        const actualLocIdx = (abstractLocIdx + weekIdx) % L;
-        const actualDow = sortedDays[actualDayIdx];
-        const dateStr = dates.get(actualDow);
-
-        if (dateStr) {
-          weekAssignments.push({
-            dateStr,
-            locationId: locations[actualLocIdx].id,
+            locationId: locIds[actualLocIndex],
+            teacherId: teacherIds[i],
           });
         }
       }
 
-      for (const { dateStr, locationId } of weekAssignments) {
-        const teacher = teacherQueue.shift()!;
-        newAssignments.push({
-          id: uuidv4(),
-          date: dateStr,
-          locationId,
-          teacherId: teacher.id,
-        });
-        teacherQueue.push(teacher);
-      }
+      currentDate = addDays(currentDate, 1);
+    }
+
+    if (newAssignments.length === 0) {
+      setError('Seçilen tarih aralığında nöbet atanacak gün bulunamadı.');
+      return;
     }
 
     onGenerate(newAssignments);
     onSuccess();
   };
 
-  const sortedPreviewDays = [...activeDays]
-    .sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b))
-    .slice(0, 5);
-  const previewLocs = locations.slice(0, 4);
+  const generateStaircase = (start: Date, end: Date) => {
+    const newAssignments: Assignment[] = [];
+
+    // Tüm günlerdeki görevleri topla
+    const allDays = new Set<number>();
+    for (const location of locations) {
+      for (const duty of (location.duties || [])) {
+        allDays.add(duty.day);
+      }
+    }
+    const sortedDays = [...allDays].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+    const D = sortedDays.length;
+
+    if (D === 0) {
+      setError('Nöbet yerlerine henüz görevli atanmamış.');
+      return;
+    }
+
+    // Her gün için görevleri topla
+    const dayDutyMap = new Map<number, { teacherId: string; locationId: string }[]>();
+    for (const location of locations) {
+      for (const duty of (location.duties || [])) {
+        if (!dayDutyMap.has(duty.day)) dayDutyMap.set(duty.day, []);
+        dayDutyMap.get(duty.day)!.push({
+          teacherId: duty.teacherId,
+          locationId: location.id,
+        });
+      }
+    }
+
+    const refWeekStart = startOfWeek(start, { weekStartsOn: 1 }).getTime();
+
+    let currentDate = start;
+    while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
+      const dayOfWeek = getDay(currentDate);
+
+      const curWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 }).getTime();
+      const weekOffset = Math.round((curWeekStart - refWeekStart) / (7 * 24 * 60 * 60 * 1000));
+
+      // Merdiven: gün de kayar — bu haftanın dayOfWeek'i için hangi orijinal günün öğretmenlerini kullan
+      const dayIdx = sortedDays.indexOf(dayOfWeek);
+      if (dayIdx === -1) {
+        currentDate = addDays(currentDate, 1);
+        continue;
+      }
+
+      const originalDayIdx = ((dayIdx - weekOffset) % D + D) % D;
+      const originalDay = sortedDays[originalDayIdx];
+      const dutiesForOriginalDay = dayDutyMap.get(originalDay);
+
+      if (dutiesForOriginalDay && dutiesForOriginalDay.length > 0) {
+        const dateStr = format(currentDate, 'yyyy-MM-dd');
+        const locIds = dutiesForOriginalDay.map(d => d.locationId);
+        const teacherIds = dutiesForOriginalDay.map(d => d.teacherId);
+        const count = dutiesForOriginalDay.length;
+
+        for (let i = 0; i < count; i++) {
+          const shiftedLocIndex = ((i + weekOffset) % count + count) % count;
+          newAssignments.push({
+            id: uuidv4(),
+            date: dateStr,
+            locationId: locIds[shiftedLocIndex],
+            teacherId: teacherIds[i],
+          });
+        }
+      }
+
+      currentDate = addDays(currentDate, 1);
+    }
+
+    if (newAssignments.length === 0) {
+      setError('Seçilen tarih aralığında nöbet atanacak gün bulunamadı.');
+      return;
+    }
+
+    onGenerate(newAssignments);
+    onSuccess();
+  };
 
   return (
     <div className="w-full mx-auto space-y-6">
@@ -333,23 +347,35 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
             </div>
           </div>
 
-          {/* Day selector for standard/staircase */}
-          {rotationMode !== 'locationBased' && (
-            <div className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">Nöbet Günleri</label>
-              <div className="flex flex-wrap gap-2">
-                {DAYS_OF_WEEK.map(day => (
-                  <button
-                    key={day.id}
-                    onClick={() => toggleDay(day.id)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                      activeDays.includes(day.id)
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {day.label}
-                  </button>
+          {/* Duty preview for standard/staircase */}
+          {rotationMode !== 'locationBased' && totalDuties > 0 && (
+            <div className={`border rounded-xl p-4 ${
+              rotationMode === 'staircase' ? 'bg-amber-50/50 border-amber-100' : 'bg-indigo-50/50 border-indigo-100'
+            }`}>
+              <h4 className={`text-sm font-semibold mb-3 ${
+                rotationMode === 'staircase' ? 'text-amber-800' : 'text-indigo-800'
+              }`}>
+                {rotationMode === 'standard'
+                  ? 'Her hafta öğretmenler bir sonraki nöbet yerine kayar'
+                  : 'Her hafta hem gün hem nöbet yeri 1 adım kayar'}
+              </h4>
+              <div className="space-y-2">
+                {locations.filter(loc => (loc.duties?.length || 0) > 0).map(loc => (
+                  <div key={loc.id} className="bg-white rounded-lg border border-slate-100 p-3">
+                    <span className="font-medium text-slate-700 text-sm">{loc.name}</span>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {(loc.duties || []).map((duty, i) => {
+                        const teacher = teachers.find(t => t.id === duty.teacherId);
+                        return (
+                          <span key={i} className={`text-xs px-2 py-0.5 rounded-full ${
+                            rotationMode === 'staircase' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'
+                          }`}>
+                            {teacher?.name || '?'} — {DAY_SHORT[duty.day]}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -379,51 +405,10 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
             </div>
           )}
 
-          {/* Staircase Preview */}
-          {rotationMode === 'staircase' && sortedPreviewDays.length >= 2 && previewLocs.length >= 2 && (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-              <h4 className="text-sm font-semibold text-amber-800 mb-3">Merdiven Nöbet Önizleme</h4>
-              <div className="overflow-x-auto">
-                <table className="text-xs border-collapse w-full">
-                  <thead>
-                    <tr>
-                      <th className="py-1.5 px-2 text-left text-amber-600 font-semibold border-b border-amber-200">Hafta</th>
-                      {previewLocs.map(loc => (
-                        <th key={loc.id} className="py-1.5 px-2 text-center text-amber-600 font-semibold border-b border-amber-200">
-                          {loc.name}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[0, 1, 2].map(weekIdx => (
-                      <tr key={weekIdx}>
-                        <td className="py-1.5 px-2 font-medium text-amber-700 border-b border-amber-100 whitespace-nowrap">
-                          {weekIdx + 1}. Hafta
-                        </td>
-                        {previewLocs.map((_, locIdx) => {
-                          const D = sortedPreviewDays.length;
-                          const actualDayIdx = (0 + weekIdx) % D;
-                          const dayName = DAY_SHORT[sortedPreviewDays[actualDayIdx]];
-                          const isHighlighted = locIdx === 0;
-                          return (
-                            <td key={locIdx} className={`py-1.5 px-2 text-center border-b border-amber-100 ${isHighlighted ? 'font-bold text-amber-900' : 'text-amber-700'}`}>
-                              {dayName}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           <div className="pt-6 border-t border-slate-100">
             <button
               onClick={handleGenerate}
-              disabled={rotationMode === 'locationBased' && totalDuties === 0}
+              disabled={totalDuties === 0}
               className={`w-full py-3 px-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm text-white ${
                 rotationMode === 'staircase'
                   ? 'bg-amber-600 hover:bg-amber-700'
@@ -438,14 +423,7 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
                 : 'Dönerli Nöbet Programı Oluştur'}
             </button>
             <p className="text-center text-sm text-slate-500 mt-3">
-              {rotationMode === 'locationBased'
-                ? `${locations.length} nöbet yeri, ${totalDuties} görev ataması ile program oluşturulacak.`
-                : `${teachers.filter(t => t.dutyType !== 'nobetDisi').length} öğretmen ve ${locations.length} nöbet yeri ile program oluşturulacak.`}
-              {rotationMode !== 'locationBased' && teachers.some(t => t.dutyType === 'nobetDisi') && (
-                <span className="block text-amber-600 mt-1">
-                  ({teachers.filter(t => t.dutyType === 'nobetDisi').length} öğretmen nöbet dışı)
-                </span>
-              )}
+              {locations.length} nöbet yeri, {totalDuties} görev ataması ile program oluşturulacak.
             </p>
           </div>
         </div>
