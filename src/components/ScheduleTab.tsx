@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { format, parseISO } from 'date-fns';
+import React, { useState, useMemo } from 'react';
+import { format, parseISO, getISOWeek } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { Calendar, Printer, Send, X, CheckCircle2 } from 'lucide-react';
 import { Teacher, Location, Assignment, SchoolInfo } from '../types';
@@ -146,45 +146,66 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 print:divide-black border-b border-slate-200 print:border-black">
+            <tbody className="border-b border-slate-200 print:border-black">
               {scheduleData.sortedDates.map((date, index) => {
                 const parsedDate = parseISO(date);
                 const formattedDate = format(parsedDate, 'dd.MM.yyyy');
                 const dayName = format(parsedDate, 'EEEE', { locale: tr });
-                
+                const weekNum = getISOWeek(parsedDate);
+
+                const prevDate = index > 0 ? parseISO(scheduleData.sortedDates[index - 1]) : null;
+                const prevWeek = prevDate ? getISOWeek(prevDate) : null;
+                const isNewWeek = index === 0 || weekNum !== prevWeek;
+
                 const vpCount = schoolInfo.mudurYardimcilari.length;
                 const assignedVp = vpCount > 0 ? schoolInfo.mudurYardimcilari[index % vpCount] : null;
 
+                const colCount = locations.length + 1 + (vpCount > 0 ? 1 : 0);
+
                 return (
-                  <tr key={date} className="hover:bg-slate-50/50 transition-colors print:hover:bg-transparent">
-                    <td className="py-4 px-6 print:py-2 print:px-2 whitespace-nowrap sticky left-0 bg-surface print:bg-transparent group-hover:bg-slate-50/50 z-10 border-r border-slate-200 print:border print:border-black">
-                      <div className="font-medium text-slate-900 print:text-black">{formattedDate}</div>
-                      <div className="text-sm text-slate-500 print:text-black">{dayName}</div>
-                    </td>
-                    {locations.map((location) => {
-                      const assignedTeachers = scheduleData.data[date]?.[location.id] || [];
-                      return (
-                        <td key={location.id} className="py-4 px-6 print:py-2 print:px-2 print:border print:border-black">
-                          {assignedTeachers.length > 0 ? (
-                            <div className="flex flex-col gap-1">
-                              {assignedTeachers.map((teacher, ti) => (
-                                <span key={ti} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 print:bg-transparent print:border-none print:p-0 print:text-black">
-                                  {teacher.name}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-slate-300 print:text-black text-sm">-</span>
-                          )}
+                  <React.Fragment key={date}>
+                    {isNewWeek && (
+                      <tr className="print:break-inside-avoid">
+                        <td
+                          colSpan={colCount}
+                          className={`py-2 px-6 print:py-1.5 print:px-2 text-xs font-bold text-slate-500 print:text-black bg-slate-100 print:bg-gray-200 tracking-wide ${
+                            index > 0 ? 'border-t-[3px] border-slate-400 print:border-t-[3px] print:border-black' : ''
+                          } print:border print:border-black`}
+                        >
+                          {weekNum}. HAFTA
                         </td>
-                      );
-                    })}
-                    {assignedVp && (
-                      <td className="py-4 px-6 print:py-2 print:px-2 font-medium text-slate-700 print:text-black print:border print:border-black">
-                        {assignedVp.name}
-                      </td>
+                      </tr>
                     )}
-                  </tr>
+                    <tr className="hover:bg-slate-50/50 transition-colors print:hover:bg-transparent border-b border-slate-200 print:border-black">
+                      <td className="py-4 px-6 print:py-2 print:px-2 whitespace-nowrap sticky left-0 bg-surface print:bg-transparent group-hover:bg-slate-50/50 z-10 border-r border-slate-200 print:border print:border-black">
+                        <div className="font-medium text-slate-900 print:text-black">{formattedDate}</div>
+                        <div className="text-sm text-slate-500 print:text-black">{dayName}</div>
+                      </td>
+                      {locations.map((location) => {
+                        const assignedTeachers = scheduleData.data[date]?.[location.id] || [];
+                        return (
+                          <td key={location.id} className="py-4 px-6 print:py-2 print:px-2 print:border print:border-black">
+                            {assignedTeachers.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {assignedTeachers.map((teacher, ti) => (
+                                  <span key={ti} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 print:bg-transparent print:border-none print:p-0 print:text-black">
+                                    {teacher.name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 print:text-black text-sm">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      {assignedVp && (
+                        <td className="py-4 px-6 print:py-2 print:px-2 font-medium text-slate-700 print:text-black print:border print:border-black">
+                          {assignedVp.name}
+                        </td>
+                      )}
+                    </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>

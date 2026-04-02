@@ -96,7 +96,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <header className="bg-surface border-b border-slate-200 sticky top-0 z-10">
+      <header className="bg-surface border-b border-slate-200 sticky top-0 z-10 print:hidden">
         <div className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
@@ -159,7 +159,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 print:px-0 print:py-0 print:max-w-none">
         {activeTab === 'teachers' && isAdmin && (
           <TeachersTab teachers={teachers} setTeachers={setTeachers} />
         )}
