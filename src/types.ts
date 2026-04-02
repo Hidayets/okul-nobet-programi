@@ -25,9 +25,15 @@ export interface ClassInfo {
   schedule: Record<number, Record<number, string>>;
 }
 
+export interface LocationDuty {
+  teacherId: string;
+  day: number; // 1=Pzt, 2=Sal, 3=Çar, 4=Per, 5=Cum
+}
+
 export interface Location {
   id: string;
   name: string;
+  duties: LocationDuty[];
 }
 
 export interface Assignment {

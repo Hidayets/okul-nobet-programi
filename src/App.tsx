@@ -173,7 +173,7 @@ export default function App() {
           />
         )}
         {activeTab === 'locations' && isAdmin && (
-          <LocationsTab locations={locations} setLocations={setLocations} />
+          <LocationsTab locations={locations} setLocations={setLocations} teachers={teachers} />
         )}
         {activeTab === 'generator' && isAdmin && (
           <GeneratorTab 

@@ -17,7 +17,7 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
   const [notificationStatus, setNotificationStatus] = useState<'idle' | 'sending' | 'success'>('idle');
 
   const scheduleData = useMemo(() => {
-    const data: Record<string, Record<string, Teacher | undefined>> = {};
+    const data: Record<string, Record<string, Teacher[]>> = {};
     const dates = new Set<string>();
 
     assignments.forEach((assignment) => {
@@ -25,9 +25,14 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
       if (!data[assignment.date]) {
         data[assignment.date] = {};
       }
-      
+      if (!data[assignment.date][assignment.locationId]) {
+        data[assignment.date][assignment.locationId] = [];
+      }
+
       const teacher = teachers.find(t => t.id === assignment.teacherId);
-      data[assignment.date][assignment.locationId] = teacher;
+      if (teacher) {
+        data[assignment.date][assignment.locationId].push(teacher);
+      }
     });
 
     const sortedDates = Array.from(dates).sort();
@@ -157,13 +162,17 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
                       <div className="text-sm text-slate-500 print:text-black">{dayName}</div>
                     </td>
                     {locations.map((location) => {
-                      const teacher = scheduleData.data[date]?.[location.id];
+                      const assignedTeachers = scheduleData.data[date]?.[location.id] || [];
                       return (
                         <td key={location.id} className="py-4 px-6 print:py-2 print:px-2 print:border print:border-black">
-                          {teacher ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 print:bg-transparent print:border-none print:p-0 print:text-black">
-                              {teacher.name}
-                            </span>
+                          {assignedTeachers.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {assignedTeachers.map((teacher, ti) => (
+                                <span key={ti} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 print:bg-transparent print:border-none print:p-0 print:text-black">
+                                  {teacher.name}
+                                </span>
+                              ))}
+                            </div>
                           ) : (
                             <span className="text-slate-300 print:text-black text-sm">-</span>
                           )}
