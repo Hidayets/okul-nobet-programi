@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Tray, Menu } from 'electron';
+import { app, BrowserWindow, shell, Tray, Menu, ipcMain } from 'electron';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -87,13 +87,25 @@ function createWindow() {
   mainWindow.loadURL(APP_URL);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http') && !url.startsWith(APP_URL)) {
+    if (!url || url === '' || url === 'about:blank') {
+      return { action: 'allow' };
+    }
+    if (url.startsWith(APP_URL)) {
+      return { action: 'allow' };
+    }
+    if (url.startsWith('http')) {
       shell.openExternal(url);
     }
     return { action: 'deny' };
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  ipcMain.on('print-page', () => {
+    if (mainWindow) {
+      mainWindow.webContents.print({ silent: false });
+    }
+  });
 }
 
 app.whenReady().then(async () => {

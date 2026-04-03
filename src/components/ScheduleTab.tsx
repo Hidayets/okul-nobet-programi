@@ -51,7 +51,11 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
   }, [assignments, teachers]);
 
   const handlePrint = () => {
-    window.print();
+    if ((window as any).electronAPI?.print) {
+      (window as any).electronAPI.print();
+    } else {
+      window.print();
+    }
   };
 
   const handlePrintDutyCounts = () => {
@@ -121,7 +125,14 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
     return teachers.filter(t => ids.has(t.id) && !t.email);
   }, [assignments, teachers]);
 
+  const [showConfirm, setShowConfirm] = useState(false);
+
   const handleSendNotifications = async () => {
+    if (!showConfirm) {
+      setShowConfirm(true);
+      return;
+    }
+    setShowConfirm(false);
     setNotificationStatus('sending');
     setEmailError(null);
     setEmailResult(null);
@@ -431,7 +442,7 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-slate-800">Bildirimleri Gönder</h3>
               <button 
-                onClick={() => setShowNotificationModal(false)}
+                onClick={() => { setShowNotificationModal(false); setShowConfirm(false); }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
                 disabled={notificationStatus === 'sending'}
               >
@@ -498,35 +509,58 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
                     </>
                   )}
 
-                  <div className="flex justify-end gap-3">
-                    <button
-                      onClick={() => { setShowNotificationModal(false); setEmailError(null); }}
-                      className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
-                      disabled={notificationStatus === 'sending'}
-                    >
-                      İptal
-                    </button>
-                    <button
-                      onClick={handleSendNotifications}
-                      disabled={notificationStatus === 'sending' || !schoolInfo.gmailEmail || !schoolInfo.gmailAppPassword || teachersWithDuties.length === 0}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {notificationStatus === 'sending' ? (
-                        <span className="flex items-center gap-2">
-                          <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Gönderiliyor...
-                        </span>
-                      ) : (
-                        <>
+                  {showConfirm ? (
+                    <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-2">
+                      <p className="text-sm font-semibold text-amber-800 mb-3">
+                        {teachersWithDuties.length} öğretmene e-posta göndermek istediğinize emin misiniz?
+                      </p>
+                      <div className="flex justify-end gap-3">
+                        <button
+                          onClick={() => setShowConfirm(false)}
+                          className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors text-sm"
+                        >
+                          Vazgeç
+                        </button>
+                        <button
+                          onClick={handleSendNotifications}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                        >
                           <Send className="w-4 h-4" />
-                          E-postaları Gönder
-                        </>
-                      )}
-                    </button>
-                  </div>
+                          Evet, Gönder
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-end gap-3">
+                      <button
+                        onClick={() => { setShowNotificationModal(false); setEmailError(null); setShowConfirm(false); }}
+                        className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+                        disabled={notificationStatus === 'sending'}
+                      >
+                        İptal
+                      </button>
+                      <button
+                        onClick={handleSendNotifications}
+                        disabled={notificationStatus === 'sending' || !schoolInfo.gmailEmail || !schoolInfo.gmailAppPassword || teachersWithDuties.length === 0}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {notificationStatus === 'sending' ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Gönderiliyor...
+                          </span>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            E-postaları Gönder
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
