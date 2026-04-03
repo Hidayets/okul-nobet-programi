@@ -40,6 +40,10 @@
       {
         "from": "release/better_sqlite3.node",
         "to": "better_sqlite3.node"
+      },
+      {
+        "from": "dist",
+        "to": "dist"
       }
     ],
     "asar": true,
