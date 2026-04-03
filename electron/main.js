@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, Tray, Menu } from 'electron';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { autoUpdater } from 'electron-updater';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -13,6 +14,10 @@ const APP_URL = `http://localhost:${PORT}`;
 let mainWindow   = null;
 let serverProcess = null;
 let tray = null;
+
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.logger = null;
 
 function getIconPath() {
   if (isDev) {
@@ -101,6 +106,10 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+
+  if (!isDev) {
+    setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
