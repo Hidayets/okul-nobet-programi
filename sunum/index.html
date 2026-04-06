@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Okul Nöbet Programı — Tanıtım</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary: #4f46e5;
+  --primary-light: #818cf8;
+  --primary-dark: #3730a3;
+  --accent: #06b6d4;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --gradient: linear-gradient(135deg, #4f46e5, #7c3aed, #06b6d4);
+}
+
+html, body { height: 100%; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+.deck { position: relative; width: 100%; height: 100%; }
+
+.slide {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  padding: 60px 80px;
+  opacity: 0; transform: translateX(60px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  pointer-events: none;
+  overflow-y: auto;
+}
+.slide.active { opacity: 1; transform: translateX(0); pointer-events: all; }
+.slide.prev { opacity: 0; transform: translateX(-60px); }
+
+/* Navigation */
+.nav { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 20px; z-index: 100; }
+.nav button {
+  width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.05); color: white; font-size: 20px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.3s; backdrop-filter: blur(10px);
+}
+.nav button:hover { background: var(--primary); border-color: var(--primary); transform: scale(1.1); }
+.nav button:disabled { opacity: 0.3; cursor: default; transform: none; }
+.nav .counter { font-size: 14px; color: var(--text-muted); font-weight: 500; min-width: 60px; text-align: center; }
+
+.progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--gradient); transition: width 0.5s ease; z-index: 100; }
+
+/* Typography */
+h1 { font-size: 3.5rem; font-weight: 900; line-height: 1.1; letter-spacing: -0.03em; }
+h2 { font-size: 2.4rem; font-weight: 800; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 16px; }
+h3 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+.subtitle { font-size: 1.3rem; color: var(--text-muted); font-weight: 400; line-height: 1.6; max-width: 700px; }
+.tag { display: inline-block; padding: 6px 16px; border-radius: 100px; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+
+/* Gradient text */
+.grad { background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+/* Cards */
+.card {
+  background: var(--surface); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; padding: 28px; transition: all 0.3s;
+}
+.card:hover { border-color: var(--primary-light); transform: translateY(-4px); box-shadow: 0 20px 40px rgba(79,70,229,0.15); }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; width: 100%; max-width: 1000px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; width: 100%; max-width: 1100px; }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; width: 100%; max-width: 1100px; }
+
+/* Icons */
+.icon-circle {
+  width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
+  font-size: 24px; margin-bottom: 16px; flex-shrink: 0;
+}
+.icon-sm { width: 40px; height: 40px; border-radius: 10px; font-size: 18px; margin-bottom: 12px; }
+.bg-indigo { background: rgba(79,70,229,0.15); color: var(--primary-light); }
+.bg-cyan { background: rgba(6,182,212,0.15); color: var(--accent); }
+.bg-green { background: rgba(16,185,129,0.15); color: var(--success); }
+.bg-amber { background: rgba(245,158,11,0.15); color: var(--warning); }
+.bg-red { background: rgba(239,68,68,0.15); color: var(--danger); }
+.bg-violet { background: rgba(139,92,246,0.15); color: #a78bfa; }
+
+/* Steps */
+.step { display: flex; align-items: flex-start; gap: 20px; }
+.step-num {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--primary);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+
+/* Feature list */
+.feat-list { list-style: none; }
+.feat-list li { padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 1.05rem; }
+.feat-list li::before { content: '✓'; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(16,185,129,0.15); color: var(--success); font-weight: 700; font-size: 14px; flex-shrink: 0; }
+
+/* Mock UI */
+.mock-window {
+  background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+  overflow: hidden; width: 100%; max-width: 500px; box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+}
+.mock-titlebar { height: 32px; background: #1e293b; display: flex; align-items: center; padding: 0 12px; gap: 8px; }
+.mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+.mock-body { padding: 24px; }
+
+/* Pricing */
+.price-card {
+  background: linear-gradient(135deg, var(--primary-dark), #7c3aed);
+  border: 2px solid var(--primary-light); border-radius: 20px; padding: 40px;
+  text-align: center; position: relative; overflow: hidden;
+}
+.price-card::before {
+  content: ''; position: absolute; top: -50%; right: -50%;
+  width: 200%; height: 200%; background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
+}
+.price-amount { font-size: 3rem; font-weight: 900; margin: 16px 0; }
+.price-period { font-size: 1rem; color: rgba(255,255,255,0.7); }
+
+/* Badge */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px;
+  border-radius: 100px; font-size: 0.75rem; font-weight: 600;
+}
+.badge-indigo { background: rgba(79,70,229,0.2); color: var(--primary-light); }
+.badge-green { background: rgba(16,185,129,0.2); color: var(--success); }
+
+/* Comparison table */
+.compare-table { width: 100%; max-width: 900px; border-collapse: separate; border-spacing: 0; }
+.compare-table th, .compare-table td { padding: 14px 20px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.compare-table th { color: var(--text-muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.compare-table td:nth-child(2), .compare-table td:nth-child(3) { text-align: center; }
+.compare-table .yes { color: var(--success); font-weight: 600; }
+.compare-table .no { color: var(--danger); opacity: 0.6; }
+
+/* Animations */
+@keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.float { animation: float 3s ease-in-out infinite; }
+
+/* Cover decorations */
+.cover-bg {
+  position: absolute; inset: 0; overflow: hidden; z-index: 0;
+}
+.cover-bg .orb {
+  position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.3;
+}
+.cover-bg .orb1 { width: 500px; height: 500px; background: #4f46e5; top: -10%; right: -5%; }
+.cover-bg .orb2 { width: 400px; height: 400px; background: #7c3aed; bottom: -15%; left: -5%; }
+.cover-bg .orb3 { width: 300px; height: 300px; background: #06b6d4; top: 40%; left: 30%; }
+
+.slide-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 24px; width: 100%; }
+.slide-left { align-items: flex-start; text-align: left; }
+.slide-split { flex-direction: row; gap: 60px; max-width: 1100px; text-align: left; align-items: center; }
+.slide-split > * { flex: 1; }
+
+/* Print */
+@media print { .nav, .progress { display: none !important; } .slide { position: relative; opacity: 1; transform: none; pointer-events: all; page-break-after: always; } }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<div class="deck" id="deck">
+
+<!-- ═══ SLIDE 1: KAPAK ═══ -->
+<div class="slide active" data-slide="0">
+  <div class="cover-bg"><div class="orb orb1"></div><div class="orb orb2"></div><div class="orb orb3"></div></div>
+  <div class="slide-content">
+    <div class="tag" style="background:rgba(79,70,229,0.2);color:var(--primary-light)">v1.4 — Yeni Versiyon</div>
+    <h1 style="font-size:4rem">Okul Nöbet<br><span class="grad">Programı</span></h1>
+    <p class="subtitle" style="text-align:center">Nöbet çizelgelerini saniyeler içinde oluşturun.<br>Adil, otomatik, kolay ve tamamen çevrimdışı.</p>
+    <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;justify-content:center">
+      <div class="badge badge-indigo">🖥 Windows Masaüstü</div>
+      <div class="badge badge-indigo">🌐 Tarayıcı Erişimi</div>
+      <div class="badge badge-green">🔒 İnternet Gerektirmez</div>
+      <div class="badge badge-green">💰 Tek Seferlik Ücret</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 2: PROBLEM ═══ -->
+<div class="slide" data-slide="1">
+  <div class="slide-content">
+    <div class="tag bg-red" style="background:rgba(239,68,68,0.15);color:#f87171">Mevcut Durum</div>
+    <h2>Nöbet Programı Hazırlamak<br>Neden Bu Kadar <span class="grad">Zor?</span></h2>
+    <div class="grid3" style="margin-top:20px">
+      <div class="card">
+        <div class="icon-circle bg-red">⏱</div>
+        <h3>Saatler Süren Hazırlık</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem">Excel tablolarıyla uğraşmak, her öğretmenin ders programını tek tek kontrol etmek</p>
+      </div>
+      <div class="card">
+        <div class="icon-circle bg-amber">⚖️</div>
+        <h3>Adaletsiz Dağılım</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem">Bazı öğretmenlere fazla nöbet düşmesi, şikayetlerin artması</p>
+      </div>
+      <div class="card">
+        <div class="icon-circle bg-red">🔄</div>
+        <h3>Son Dakika Değişiklikleri</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem">Öğretmen gelmiyor, yerine kim girecek? Tüm çizelge baştan mı yapılacak?</p>
+      </div>
+      <div class="card">
+        <div class="icon-circle bg-amber">📋</div>
+        <h3>Takip Zorluğu</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem">Kim kaç nöbet tuttu? Kim kaç gün gelmedi? Kayıtlar nerede?</p>
+      </div>
+      <div class="card">
+        <div class="icon-circle bg-red">📄</div>
+        <h3>Çıktı Sorunları</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem">Düzgün formatlı, imza çizelgeli, müfettişe sunulabilir çıktı almak</p>
+      </div>
+      <div class="card">
+        <div class="icon-circle bg-amber">🗓</div>
+        <h3>Tatil Hesaplama</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem">Resmi tatiller, ara tatiller, bayramlar... Hangi gün nöbet var, hangi gün yok?</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 3: ÇÖZÜM ═══ -->
+<div class="slide" data-slide="2">
+  <div class="slide-content">
+    <div class="tag" style="background:rgba(16,185,129,0.15);color:#34d399">Çözüm</div>
+    <h2>Tüm Bunları <span class="grad">Tek Tıkla</span> Çözün</h2>
+    <p class="subtitle" style="text-align:center;margin-bottom:20px">Okul Nöbet Programı, müdür yardımcılarının nöbet yönetiminde harcadığı zamanı saatlerden dakikalara indirir.</p>
+    <div class="grid4">
+      <div class="card" style="text-align:center">
+        <div class="icon-circle icon-sm bg-indigo" style="margin:0 auto 12px">👨‍🏫</div>
+        <h3 style="font-size:1rem">Öğretmen Ekle</h3>
+        <p style="color:var(--text-muted);font-size:0.8rem">İsim, ders programı, kısıtlar</p>
+      </div>
+      <div class="card" style="text-align:center">
+        <div class="icon-circle icon-sm bg-cyan" style="margin:0 auto 12px">📍</div>
+        <h3 style="font-size:1rem">Nöbet Yeri Tanımla</h3>
+        <p style="color:var(--text-muted);font-size:0.8rem">Koridor, bahçe, giriş</p>
+      </div>
+      <div class="card" style="text-align:center">
+        <div class="icon-circle icon-sm bg-green" style="margin:0 auto 12px">⚡</div>
+        <h3 style="font-size:1rem">Otomatik Oluştur</h3>
+        <p style="color:var(--text-muted);font-size:0.8rem">4 farklı dağıtım modu</p>
+      </div>
+      <div class="card" style="text-align:center">
+        <div class="icon-circle icon-sm bg-violet" style="margin:0 auto 12px">🖨</div>
+        <h3 style="font-size:1rem">Yazdır & Paylaş</h3>
+        <p style="color:var(--text-muted);font-size:0.8rem">İmza çizelgeli çıktı</p>
+      </div>
+    </div>
+    <div style="margin-top:30px;display:flex;gap:40px;flex-wrap:wrap;justify-content:center">
+      <div style="text-align:center"><div style="font-size:2.5rem;font-weight:900" class="grad">30sn</div><div style="font-size:0.85rem;color:var(--text-muted)">Program oluşturma süresi</div></div>
+      <div style="text-align:center"><div style="font-size:2.5rem;font-weight:900" class="grad">%100</div><div style="font-size:0.85rem;color:var(--text-muted)">Adil nöbet dağılımı</div></div>
+      <div style="text-align:center"><div style="font-size:2.5rem;font-weight:900" class="grad">0₺</div><div style="font-size:0.85rem;color:var(--text-muted)">Aylık ücret</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 4: İLK KURULUM ═══ -->
+<div class="slide" data-slide="3">
+  <div class="slide-content slide-split">
+    <div>
+      <div class="tag" style="background:rgba(79,70,229,0.15);color:var(--primary-light)">Adım 1</div>
+      <h2 style="margin-top:16px">Kolay <span class="grad">İlk Kurulum</span></h2>
+      <p style="color:var(--text-muted);margin-bottom:30px;font-size:1rem;line-height:1.7">Kurulum dosyasını çalıştırın, lisans anahtarınızı girin, şifrelerinizi belirleyin. Hepsi bu kadar!</p>
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div><h3 style="margin-bottom:4px">Kurulumu Çalıştırın</h3><p style="color:var(--text-muted);font-size:0.9rem">Setup dosyasına çift tıklayın, "İleri" deyin.</p></div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div><h3 style="margin-bottom:4px">Lisans Anahtarını Girin</h3><p style="color:var(--text-muted);font-size:0.9rem">Size verilen XXXX-XXXX-XXXX-XXXX formatındaki anahtarı girin.</p></div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div><h3 style="margin-bottom:4px">Şifreleri Belirleyin</h3><p style="color:var(--text-muted);font-size:0.9rem">Admin (idare) ve öğretmen (ortak) şifrelerini oluşturun.</p></div>
+        </div>
+        <div class="step">
+          <div class="step-num" style="background:var(--success)">✓</div>
+          <div><h3 style="margin-bottom:4px">Kullanmaya Başlayın!</h3><p style="color:var(--text-muted);font-size:0.9rem">Aynı ağdaki tüm bilgisayarlardan erişim sağlayın.</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="mock-window float">
+      <div class="mock-titlebar">
+        <div class="mock-dot" style="background:#ef4444"></div>
+        <div class="mock-dot" style="background:#f59e0b"></div>
+        <div class="mock-dot" style="background:#10b981"></div>
+      </div>
+      <div class="mock-body" style="text-align:center">
+        <div style="font-size:40px;margin-bottom:12px">🏫</div>
+        <div style="font-weight:700;font-size:1.1rem;margin-bottom:16px">İlk Kurulum (Okul Kaydı)</div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:10px;text-align:left;font-size:0.85rem;color:var(--text-muted)">
+          🏛 Kurum Kodu: <span style="color:white">750012</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:10px;text-align:left;font-size:0.85rem;color:var(--text-muted)">
+          🔑 Lisans: <span style="color:white;font-family:monospace">A1B2-C3D4-E5F6-G7H8</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:10px;text-align:left;font-size:0.85rem;color:var(--text-muted)">
+          🔒 Admin Şifre: <span style="color:white">••••••</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:16px;text-align:left;font-size:0.85rem;color:var(--text-muted)">
+          👥 Öğretmen Şifre: <span style="color:white">••••••</span>
+        </div>
+        <div style="background:var(--primary);border-radius:8px;padding:10px;font-weight:600;font-size:0.9rem">Kurulumu Tamamla</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 5: ÖĞRETMEN YÖNETİMİ ═══ -->
+<div class="slide" data-slide="4">
+  <div class="slide-content slide-split">
+    <div class="mock-window">
+      <div class="mock-titlebar">
+        <div class="mock-dot" style="background:#ef4444"></div>
+        <div class="mock-dot" style="background:#f59e0b"></div>
+        <div class="mock-dot" style="background:#10b981"></div>
+      </div>
+      <div class="mock-body" style="font-size:0.85rem">
+        <div style="font-weight:700;margin-bottom:12px">👨‍🏫 Öğretmenler</div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <span>Ahmet Yılmaz</span>
+          <div style="display:flex;gap:4px">
+            <span style="background:rgba(79,70,229,0.2);color:var(--primary-light);padding:2px 8px;border-radius:100px;font-size:0.7rem">Sabit</span>
+            <span style="background:rgba(245,158,11,0.2);color:#fbbf24;padding:2px 8px;border-radius:100px;font-size:0.7rem">Çar ✗</span>
+          </div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <span>Fatma Kaya</span>
+          <span style="background:rgba(79,70,229,0.2);color:var(--primary-light);padding:2px 8px;border-radius:100px;font-size:0.7rem">Hareketli</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <span>Mehmet Demir</span>
+          <span style="background:rgba(239,68,68,0.2);color:#f87171;padding:2px 8px;border-radius:100px;font-size:0.7rem">Nöbet Dışı</span>
+        </div>
+        <div style="border-top:1px solid rgba(255,255,255,0.1);margin-top:12px;padding-top:12px">
+          <div style="font-weight:600;font-size:0.8rem;margin-bottom:8px">Nöbet Tutamayacağı Gün:</div>
+          <div style="display:flex;gap:6px">
+            <span style="background:var(--surface);padding:4px 10px;border-radius:6px;font-size:0.75rem">Pzt</span>
+            <span style="background:var(--surface);padding:4px 10px;border-radius:6px;font-size:0.75rem">Sal</span>
+            <span style="background:var(--primary);padding:4px 10px;border-radius:6px;font-size:0.75rem">Çar</span>
+            <span style="background:var(--surface);padding:4px 10px;border-radius:6px;font-size:0.75rem">Per</span>
+            <span style="background:var(--surface);padding:4px 10px;border-radius:6px;font-size:0.75rem">Cum</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="tag" style="background:rgba(79,70,229,0.15);color:var(--primary-light)">Öğretmen Yönetimi</div>
+      <h2 style="margin-top:16px">Öğretmenleri <span class="grad">Kolayca</span> Yönetin</h2>
+      <ul class="feat-list" style="margin-top:16px">
+        <li>Sınırsız öğretmen ekleme ve düzenleme</li>
+        <li><strong>Sabit</strong>, <strong>Hareketli</strong> veya <strong>Nöbet Dışı</strong> olarak atama</li>
+        <li>Nöbet tutamayacağı günleri belirleme</li>
+        <li>Ders programını manuel veya Excel'den yükleme</li>
+        <li>Toplu düzenleme ve arama desteği</li>
+        <li>E-posta ile nöbet bilgilendirmesi gönderme</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 6: DERS PROGRAMI ═══ -->
+<div class="slide" data-slide="5">
+  <div class="slide-content slide-split">
+    <div>
+      <div class="tag" style="background:rgba(6,182,212,0.15);color:var(--accent)">Ders Programları</div>
+      <h2 style="margin-top:16px">Ders Programını <span class="grad">Hızlıca</span> Yükleyin</h2>
+      <p style="color:var(--text-muted);margin-bottom:24px;line-height:1.7">İki farklı yükleme seçeneği ile öğretmenlerin ders programlarını sisteme aktarın. Program, boş dersleri otomatik tespit eder.</p>
+      <div class="grid2" style="max-width:500px">
+        <div class="card" style="text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">📊</div>
+          <h3 style="font-size:1rem">Excel'den Yükle</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem">Sınıf bazlı .xlsx dosyasını seçin, otomatik eşleşsin</p>
+        </div>
+        <div class="card" style="text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">✏️</div>
+          <h3 style="font-size:1rem">Manuel Giriş</h3>
+          <p style="color:var(--text-muted);font-size:0.85rem">Haftalık tablodan ders ders tıklayarak girin</p>
+        </div>
+      </div>
+    </div>
+    <div class="mock-window">
+      <div class="mock-titlebar">
+        <div class="mock-dot" style="background:#ef4444"></div>
+        <div class="mock-dot" style="background:#f59e0b"></div>
+        <div class="mock-dot" style="background:#10b981"></div>
+      </div>
+      <div class="mock-body" style="font-size:0.8rem">
+        <div style="font-weight:700;margin-bottom:10px">📚 Ders Programı — Ahmet Yılmaz</div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.7rem">
+          <tr style="color:var(--text-muted)"><td style="padding:4px"></td><td style="padding:4px;text-align:center">Pzt</td><td style="padding:4px;text-align:center">Sal</td><td style="padding:4px;text-align:center">Çar</td><td style="padding:4px;text-align:center">Per</td><td style="padding:4px;text-align:center">Cum</td></tr>
+          <tr><td style="padding:4px;color:var(--text-muted)">1</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">5/A</td><td style="padding:4px;text-align:center;color:var(--success)">Boş</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">6/B</td><td style="padding:4px;text-align:center;color:var(--success)">Boş</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">7/A</td></tr>
+          <tr><td style="padding:4px;color:var(--text-muted)">2</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">5/B</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">6/A</td><td style="padding:4px;text-align:center;color:var(--success)">Boş</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">8/A</td><td style="padding:4px;text-align:center;color:var(--success)">Boş</td></tr>
+          <tr><td style="padding:4px;color:var(--text-muted)">3</td><td style="padding:4px;text-align:center;color:var(--success)">Boş</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">7/C</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">5/A</td><td style="padding:4px;text-align:center;color:var(--success)">Boş</td><td style="padding:4px;background:rgba(79,70,229,0.15);border-radius:4px;text-align:center">8/B</td></tr>
+        </table>
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
+          <span style="font-size:0.7rem;color:var(--text-muted)">📊 Doluluk: <strong style="color:white">62%</strong></span>
+          <span style="font-size:0.7rem;color:var(--success)">🟢 Boş: <strong>15 saat</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 7: PROGRAM OLUŞTURMA ═══ -->
+<div class="slide" data-slide="6">
+  <div class="slide-content">
+    <div class="tag" style="background:rgba(16,185,129,0.15);color:#34d399">Program Oluşturma</div>
+    <h2><span class="grad">4 Farklı</span> Nöbet Dağıtım Modu</h2>
+    <p class="subtitle" style="text-align:center;margin-bottom:24px">Okulunuzun ihtiyacına en uygun dağıtım yöntemini seçin</p>
+    <div class="grid2">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div class="icon-circle icon-sm bg-indigo">📌</div>
+          <div>
+            <h3 style="margin:0">Sabit Atama</h3>
+            <span style="font-size:0.8rem;color:var(--text-muted)">Yeri ve günü sabit</span>
+          </div>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.9rem">Her öğretmenin nöbet yeri ve günü önceden belirlenmiştir. Hafta boyunca değişmez.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div class="icon-circle icon-sm bg-cyan">🔄</div>
+          <div>
+            <h3 style="margin:0">Dönerli</h3>
+            <span style="font-size:0.8rem;color:var(--text-muted)">Her hafta yer değişir</span>
+          </div>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.9rem">Öğretmenler her hafta farklı bir nöbet yerinde görev alır. Rotasyon sistemi.</p>
+      </div>
+      <div class="card" style="border-color:var(--success)">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div class="icon-circle icon-sm bg-green">⚖️</div>
+          <div>
+            <h3 style="margin:0">Adil Dönerli</h3>
+            <span class="badge badge-green" style="font-size:0.7rem">Önerilen</span>
+          </div>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.9rem">Herkes eşit sayıda nöbet tutar. Boş ders saatlerine göre akıllı atama yapılır.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div class="icon-circle icon-sm bg-violet">🪜</div>
+          <div>
+            <h3 style="margin:0">Merdiven</h3>
+            <span style="font-size:0.8rem;color:var(--text-muted)">Sıralı kayma</span>
+          </div>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.9rem">Öğretmenler sırayla kaydırılır. Her gün bir sonraki öğretmen nöbete girer.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 8: NÖBET ÇİZELGESİ ═══ -->
+<div class="slide" data-slide="7">
+  <div class="slide-content slide-split">
+    <div>
+      <div class="tag" style="background:rgba(139,92,246,0.15);color:#a78bfa">Nöbet Çizelgesi</div>
+      <h2 style="margin-top:16px">Profesyonel <span class="grad">Çıktılar</span></h2>
+      <ul class="feat-list" style="margin-top:16px">
+        <li>Haftalık, aylık ve dönemlik görünüm</li>
+        <li>Renkli ve okunaklı çizelge tasarımı</li>
+        <li>Her öğretmenin nöbet sayısı görünür</li>
+        <li>Nöbetçi Öğretmen Görev Talimatnamesi</li>
+        <li><strong>İmza çizelgesi</strong> — öğretmenler altına imza atar</li>
+        <li>Okul müdürü ve yardımcıları imza bloğu</li>
+        <li>Yazdır veya PDF olarak kaydet</li>
+      </ul>
+    </div>
+    <div class="mock-window">
+      <div class="mock-titlebar">
+        <div class="mock-dot" style="background:#ef4444"></div>
+        <div class="mock-dot" style="background:#f59e0b"></div>
+        <div class="mock-dot" style="background:#10b981"></div>
+      </div>
+      <div class="mock-body" style="font-size:0.75rem;text-align:center">
+        <div style="font-weight:700;font-size:0.9rem;margin-bottom:4px">📋 Atatürk Ortaokulu</div>
+        <div style="color:var(--text-muted);margin-bottom:12px;font-size:0.7rem">Nöbet Çizelgesi — Mart 2026</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="background:var(--surface2)"><td style="padding:6px;font-weight:600">Tarih</td><td style="padding:6px">Koridor</td><td style="padding:6px">Bahçe</td><td style="padding:6px">Giriş</td></tr>
+          <tr><td style="padding:6px;color:var(--text-muted)">02 Mar Pzt</td><td style="padding:6px;color:var(--primary-light)">A. Yılmaz</td><td style="padding:6px;color:var(--accent)">F. Kaya</td><td style="padding:6px;color:var(--success)">M. Demir</td></tr>
+          <tr style="background:rgba(255,255,255,0.02)"><td style="padding:6px;color:var(--text-muted)">03 Mar Sal</td><td style="padding:6px;color:var(--accent)">F. Kaya</td><td style="padding:6px;color:var(--success)">M. Demir</td><td style="padding:6px;color:var(--primary-light)">A. Yılmaz</td></tr>
+          <tr><td style="padding:6px;color:var(--text-muted)">04 Mar Çar</td><td style="padding:6px;color:var(--success)">M. Demir</td><td style="padding:6px;color:var(--primary-light)">A. Yılmaz</td><td style="padding:6px;color:var(--accent)">F. Kaya</td></tr>
+        </table>
+        <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:8px">
+          <div style="font-weight:600;font-size:0.7rem;color:var(--text-muted);margin-bottom:6px">İMZA ÇİZELGESİ</div>
+          <div style="display:flex;justify-content:space-around;font-size:0.7rem">
+            <div><div style="border-bottom:1px solid var(--text-muted);width:80px;margin-bottom:4px">&nbsp;</div>A. Yılmaz</div>
+            <div><div style="border-bottom:1px solid var(--text-muted);width:80px;margin-bottom:4px">&nbsp;</div>F. Kaya</div>
+            <div><div style="border-bottom:1px solid var(--text-muted);width:80px;margin-bottom:4px">&nbsp;</div>M. Demir</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 9: GÜNLÜK İŞLEMLER ═══ -->
+<div class="slide" data-slide="8">
+  <div class="slide-content">
+    <div class="tag" style="background:rgba(245,158,11,0.15);color:#fbbf24">Günlük İşlemler</div>
+    <h2>Gelmeyen Öğretmen? <span class="grad">Sorun Değil!</span></h2>
+    <p class="subtitle" style="text-align:center;margin-bottom:24px">Devamsız öğretmenin derslerini otomatik olarak nöbetçi öğretmenlere dağıtır</p>
+    <div class="grid3">
+      <div class="card">
+        <div class="icon-circle icon-sm bg-red">🚫</div>
+        <h3>Devamsızlık İşaretle</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem">"Yok Yaz" butonuna tıklayın, sebebi seçin: <strong>Mazeret İzni</strong>, <strong>Raporlu</strong>, <strong>Görevli İzinli</strong> veya <strong>Diğer</strong></p>
+      </div>
+      <div class="card">
+        <div class="icon-circle icon-sm bg-green">⚡</div>
+        <h3>Otomatik Dağıt</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem">Tek tıkla boş kalan dersleri nöbetçi öğretmenlere adil şekilde dağıtır. Kümülatif sayıyı dengeler.</p>
+      </div>
+      <div class="card">
+        <div class="icon-circle icon-sm bg-violet">🖨</div>
+        <h3>Çizelge Yazdır</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem">Görevlendirme çizelgesini yazdırın: Kim hangi sınıfa, kaçıncı ders girdi, hepsi bir sayfada.</p>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:20px;max-width:800px">
+      <div class="card" style="border-color:var(--warning)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:1.3rem">⚠️</span>
+          <h3 style="margin:0;color:#fbbf24">Nöbet Değişikliği Önerisi</h3>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.85rem">Nöbetçi öğretmen gelmediyse, yerine en uygun yedek nöbetçiyi önerir. Boş ders sayısı ve toplam nöbet sayısına göre sıralar.</p>
+      </div>
+      <div class="card" style="border-color:#a78bfa">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:1.3rem">💡</span>
+          <h3 style="margin:0;color:#a78bfa">Boş Ders Önerisi</h3>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.85rem">Nöbetçi olmayan ama bugün boş dersi olan öğretmenleri listeler. Hangi saatler boş, hepsi görünür.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 10: DEVAMSIZLIK TAKİP ═══ -->
+<div class="slide" data-slide="9">
+  <div class="slide-content slide-split">
+    <div class="mock-window">
+      <div class="mock-titlebar">
+        <div class="mock-dot" style="background:#ef4444"></div>
+        <div class="mock-dot" style="background:#f59e0b"></div>
+        <div class="mock-dot" style="background:#10b981"></div>
+      </div>
+      <div class="mock-body" style="font-size:0.75rem">
+        <div style="font-weight:700;margin-bottom:10px">📊 Devamsızlık Takip — 2025-2026</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr style="color:var(--text-muted);font-size:0.65rem"><td style="padding:4px">#</td><td style="padding:4px">Öğretmen</td><td style="padding:4px;text-align:center">Top.</td><td style="padding:4px;text-align:center">Maz.</td><td style="padding:4px;text-align:center">Rap.</td><td style="padding:4px;text-align:center">Gör.</td><td style="padding:4px;text-align:center">Diğ.</td></tr>
+          <tr><td style="padding:4px">1</td><td style="padding:4px">A. Yılmaz</td><td style="padding:4px;text-align:center"><span style="background:rgba(239,68,68,0.2);color:#f87171;padding:2px 8px;border-radius:100px;font-weight:700">7</span></td><td style="padding:4px;text-align:center">3</td><td style="padding:4px;text-align:center">2</td><td style="padding:4px;text-align:center">1</td><td style="padding:4px;text-align:center">1</td></tr>
+          <tr style="background:rgba(255,255,255,0.02)"><td style="padding:4px">2</td><td style="padding:4px">F. Kaya</td><td style="padding:4px;text-align:center"><span style="background:rgba(239,68,68,0.2);color:#f87171;padding:2px 8px;border-radius:100px;font-weight:700">4</span></td><td style="padding:4px;text-align:center">1</td><td style="padding:4px;text-align:center">2</td><td style="padding:4px;text-align:center">0</td><td style="padding:4px;text-align:center">1</td></tr>
+          <tr><td style="padding:4px">3</td><td style="padding:4px">M. Demir</td><td style="padding:4px;text-align:center"><span style="background:rgba(239,68,68,0.2);color:#f87171;padding:2px 8px;border-radius:100px;font-weight:700">2</span></td><td style="padding:4px;text-align:center">0</td><td style="padding:4px;text-align:center">1</td><td style="padding:4px;text-align:center">1</td><td style="padding:4px;text-align:center">0</td></tr>
+          <tr style="border-top:2px solid rgba(255,255,255,0.1);font-weight:700"><td colspan="2" style="padding:4px;text-align:right">TOPLAM</td><td style="padding:4px;text-align:center">13</td><td style="padding:4px;text-align:center">4</td><td style="padding:4px;text-align:center">5</td><td style="padding:4px;text-align:center">2</td><td style="padding:4px;text-align:center">2</td></tr>
+        </table>
+        <div style="margin-top:8px;color:var(--text-muted);font-size:0.65rem;text-align:center">Satıra tıklayarak tarih detaylarını görün</div>
+      </div>
+    </div>
+    <div>
+      <div class="tag" style="background:rgba(239,68,68,0.15);color:#f87171">Devamsızlık Takip</div>
+      <h2 style="margin-top:16px">Dönem Boyu <span class="grad">Kayıt Altında</span></h2>
+      <ul class="feat-list">
+        <li>Öğretmen bazlı devamsızlık istatistikleri</li>
+        <li>Sebep bazlı dağılım tablosu</li>
+        <li>Tarih detayları — hangi gün, hangi sebeple</li>
+        <li>Profesyonel yazdırma desteği</li>
+        <li>Eğitim-öğretim yılına göre filtreleme</li>
+        <li>Müfettiş denetimine hazır resmi çıktı</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 11: TATİL YÖNETİMİ ═══ -->
+<div class="slide" data-slide="10">
+  <div class="slide-content slide-split">
+    <div>
+      <div class="tag" style="background:rgba(6,182,212,0.15);color:var(--accent)">Tatil Yönetimi</div>
+      <h2 style="margin-top:16px"><span class="grad">MEB Takvimi</span> Otomatik</h2>
+      <p style="color:var(--text-muted);margin-bottom:24px;line-height:1.7">Tatil günlerini tek tek girmenize gerek yok. MEB'in eğitim-öğretim yılı takvimini tek tıkla yükleyin.</p>
+      <ul class="feat-list">
+        <li>MEB takviminden otomatik tatil yükleme</li>
+        <li>Yarıyıl tatili, ara tatiller otomatik</li>
+        <li>Ramazan ve Kurban Bayramı dahil</li>
+        <li>29 Ekim, 23 Nisan gibi MEB iş günleri ayrıştırılır</li>
+        <li>Manuel tatil ekleme/silme imkanı</li>
+        <li>Tatil günlerinde nöbet otomatik atlanır</li>
+      </ul>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="card" style="text-align:center">
+        <div style="font-size:2.5rem;margin-bottom:8px">📅</div>
+        <div style="font-weight:700;font-size:1.1rem">MEB 2025-2026 Takviminden Yükle</div>
+        <div style="color:var(--text-muted);font-size:0.85rem;margin-top:4px;margin-bottom:16px">Otomatik olarak tatil günlerini çeker</div>
+        <div style="background:var(--primary);border-radius:8px;padding:10px;font-weight:600;cursor:pointer">Yükle</div>
+      </div>
+      <div class="card" style="font-size:0.85rem">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+          <span>🎄 Yılbaşı Tatili</span><span style="color:var(--text-muted)">01.01.2026</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+          <span>📚 Yarıyıl Tatili</span><span style="color:var(--text-muted)">26.01-06.02</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+          <span>🌙 Ramazan Bayramı</span><span style="color:var(--text-muted)">30.03-01.04</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0">
+          <span>🐑 Kurban Bayramı</span><span style="color:var(--text-muted)">06-09.06</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 12: E-POSTA & ÇOKLU ERİŞİM ═══ -->
+<div class="slide" data-slide="11">
+  <div class="slide-content">
+    <div class="tag" style="background:rgba(79,70,229,0.15);color:var(--primary-light)">İletişim & Erişim</div>
+    <h2>Öğretmenlerle <span class="grad">Anında İletişim</span></h2>
+    <div class="grid3" style="margin-top:24px">
+      <div class="card" style="text-align:center">
+        <div class="icon-circle bg-indigo" style="margin:0 auto 16px">📧</div>
+        <h3>E-posta Bildirimi</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:12px">Nöbet programını öğretmenlere Gmail üzerinden otomatik gönderme. Her öğretmen kendi nöbet bilgilerini e-posta ile alır.</p>
+        <div class="badge badge-indigo">Gmail Entegrasyonu</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div class="icon-circle bg-cyan" style="margin:0 auto 16px">🖥</div>
+        <h3>Çoklu Bilgisayar</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:12px">Tek lisans yeterli. Tüm bilgisayarlara aynı uygulama kurulur. İlk açılışta "Ana Bilgisayar" veya "Bağlanan Bilgisayar" seçilir. Aynı şifre ile giriş yapılır.</p>
+        <div class="badge badge-indigo">Ek Lisans Gerekmez</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div class="icon-circle bg-green" style="margin:0 auto 16px">👥</div>
+        <h3>İki Erişim Seviyesi</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:12px"><strong>Admin:</strong> Tüm yetkilere sahip.<br><strong>Öğretmen:</strong> Sadece görüntüleme. Ortak şifre ile giriş.</p>
+        <div class="badge badge-green">Rol Bazlı</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 13: NEDEN BİZ ═══ -->
+<div class="slide" data-slide="12">
+  <div class="slide-content">
+    <h2>Neden <span class="grad">Okul Nöbet Programı?</span></h2>
+    <div style="margin-top:24px;width:100%;max-width:900px">
+      <table class="compare-table">
+        <thead>
+          <tr><th style="text-align:left">Özellik</th><th>Okul Nöbet Programı</th><th>Manuel (Excel/Kağıt)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Otomatik program oluşturma</td><td class="yes">✓ 30 saniye</td><td class="no">✗ Saatler sürer</td></tr>
+          <tr><td>Adil nöbet dağılımı</td><td class="yes">✓ Algoritmik</td><td class="no">✗ İnsan hatası</td></tr>
+          <tr><td>Tatil günleri otomatik</td><td class="yes">✓ MEB takvimi</td><td class="no">✗ Manuel kontrol</td></tr>
+          <tr><td>Devamsızlık takibi</td><td class="yes">✓ Sebepli kayıt</td><td class="no">✗ Ayrı defter</td></tr>
+          <tr><td>Ders görevlendirme</td><td class="yes">✓ Otomatik dağıtım</td><td class="no">✗ Tek tek arama</td></tr>
+          <tr><td>Profesyonel çıktı</td><td class="yes">✓ İmza çizelgeli</td><td class="no">✗ Düzensiz</td></tr>
+          <tr><td>Son dakika değişikliği</td><td class="yes">✓ Anında güncelleme</td><td class="no">✗ Baştan hazırla</td></tr>
+          <tr><td>Öğretmen kısıtları</td><td class="yes">✓ Gün bazlı</td><td class="no">✗ Akılda tutma</td></tr>
+          <tr><td>Çoklu bilgisayar erişimi</td><td class="yes">✓ Ağ desteği</td><td class="no">✗ Tek dosya</td></tr>
+          <tr><td>E-posta bildirim</td><td class="yes">✓ Gmail ile</td><td class="no">✗ Yok</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 14: FİYATLANDIRMA ═══ -->
+<div class="slide" data-slide="13">
+  <div class="slide-content">
+    <div class="tag" style="background:rgba(16,185,129,0.15);color:#34d399">Fiyatlandırma</div>
+    <h2>Tek Seferlik Ödeme, <span class="grad">Sınırsız Kullanım</span></h2>
+    <p class="subtitle" style="text-align:center;margin-bottom:36px">Aylık abonelik yok. Bir kez satın alın, sonsuza kadar kullanın.</p>
+    <div style="max-width:400px;width:100%">
+      <div class="price-card">
+        <div style="font-weight:700;font-size:1.2rem;position:relative">Okul Lisansı</div>
+        <div class="price-amount" style="position:relative">Uygun Fiyat</div>
+        <div class="price-period" style="position:relative">Tek seferlik ödeme</div>
+        <div style="margin-top:24px;text-align:left;position:relative">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:0.9rem">✓ Tüm özellikler dahil</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:0.9rem">✓ Sınırsız öğretmen</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:0.9rem">✓ Sınırsız güncelleme</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:0.9rem">✓ Çoklu bilgisayar erişimi</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:0.9rem">✓ Teknik destek</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:0.9rem">✓ İnternet gerektirmez</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SLIDE 15: SON SLAYT ═══ -->
+<div class="slide" data-slide="14">
+  <div class="cover-bg"><div class="orb orb1"></div><div class="orb orb2"></div><div class="orb orb3"></div></div>
+  <div class="slide-content">
+    <div style="font-size:5rem;margin-bottom:8px">🏫</div>
+    <h1 style="font-size:3.5rem">Nöbet Yönetimini<br><span class="grad">Kolaylaştırın</span></h1>
+    <p class="subtitle" style="text-align:center;margin-top:8px">Okulunuza özel lisans anahtarınızı alın,<br>hemen kullanmaya başlayın.</p>
+    <div style="margin-top:40px;display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div style="font-size:1.1rem;font-weight:600">İletişim</div>
+      <div style="color:var(--text-muted);font-size:1rem">📞 0 (XXX) XXX XX XX</div>
+      <div style="color:var(--text-muted);font-size:1rem">📧 ornek@email.com</div>
+    </div>
+    <div style="margin-top:32px;color:var(--text-muted);font-size:0.85rem">Okul Nöbet Programı v1.4 — 2026</div>
+  </div>
+</div>
+
+</div><!-- /deck -->
+
+<!-- Navigation -->
+<div class="nav">
+  <button id="prevBtn" onclick="navigate(-1)" disabled>‹</button>
+  <span class="counter" id="counter">1 / 15</span>
+  <button id="nextBtn" onclick="navigate(1)">›</button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+const progress = document.getElementById('progress');
+const counter = document.getElementById('counter');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+
+function showSlide(n) {
+  slides.forEach((s, i) => {
+    s.classList.remove('active', 'prev');
+    if (i === n) s.classList.add('active');
+    else if (i < n) s.classList.add('prev');
+  });
+  current = n;
+  progress.style.width = ((n + 1) / total * 100) + '%';
+  counter.textContent = (n + 1) + ' / ' + total;
+  prevBtn.disabled = n === 0;
+  nextBtn.disabled = n === total - 1;
+}
+
+function navigate(dir) {
+  const next = current + dir;
+  if (next >= 0 && next < total) showSlide(next);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') { e.preventDefault(); navigate(1); }
+  if (e.key === 'ArrowLeft' || e.key === 'Backspace') { e.preventDefault(); navigate(-1); }
+  if (e.key === 'Home') { e.preventDefault(); showSlide(0); }
+  if (e.key === 'End') { e.preventDefault(); showSlide(total - 1); }
+});
+
+let touchStartX = 0;
+document.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; });
+document.addEventListener('touchend', (e) => {
+  const diff = touchStartX - e.changedTouches[0].screenX;
+  if (Math.abs(diff) > 50) navigate(diff > 0 ? 1 : -1);
+});
+</script>
+
+</body>
+</html>
