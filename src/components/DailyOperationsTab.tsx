@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { format, parseISO, getDay } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { v4 as uuidv4 } from 'uuid';
-import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer } from 'lucide-react';
-import { Teacher, Assignment, Absence, Substitution, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes } from '../types';
+import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer, ChevronDown, Lightbulb, ShieldAlert, Users } from 'lucide-react';
+import { Teacher, Assignment, Absence, Substitution, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, AbsenceReason, ABSENCE_REASONS } from '../types';
 
 interface Props {
   teachers: Teacher[];
@@ -60,16 +60,70 @@ export default function DailyOperationsTab({
     return new Set(dailyAbsences.map(a => a.teacherId));
   }, [dailyAbsences]);
 
-  const handleToggleAbsence = (teacherId: string) => {
-    const isAbsent = dailyAbsences.some((a) => a.teacherId === teacherId);
-    if (isAbsent) {
-      setAbsences((prev) => prev.filter((a) => !(a.date === selectedDate && a.teacherId === teacherId)));
-      setSubstitutions((prev) => prev.filter((s) => !(s.date === selectedDate && s.absentTeacherId === teacherId)));
-    } else {
-      setAbsences((prev) => [...prev, { id: uuidv4(), date: selectedDate, teacherId }]);
-    }
+  const [reasonPickerFor, setReasonPickerFor] = useState<string | null>(null);
+
+  const handleMarkAbsent = (teacherId: string, reason: AbsenceReason) => {
+    setAbsences((prev) => [...prev, { id: uuidv4(), date: selectedDate, teacherId, reason }]);
+    setReasonPickerFor(null);
     setSummary(null);
   };
+
+  const handleMarkPresent = (teacherId: string) => {
+    setAbsences((prev) => prev.filter((a) => !(a.date === selectedDate && a.teacherId === teacherId)));
+    setSubstitutions((prev) => prev.filter((s) => !(s.date === selectedDate && s.absentTeacherId === teacherId)));
+    setSummary(null);
+  };
+
+  // Nöbetçi olduğu halde devamsız olan öğretmenler
+  const absentDutyTeachers = useMemo(() => {
+    return dutyTeachers.filter(t => absentIdSet.has(t.id));
+  }, [dutyTeachers, absentIdSet]);
+
+  // Nöbet değişikliği önerileri: boş dersi en çok olan, nöbet sayısı en az olan
+  const dutyReplacements = useMemo(() => {
+    if (absentDutyTeachers.length === 0) return [];
+    return teachers
+      .filter(t => {
+        if (absentIdSet.has(t.id)) return false;
+        if (dutyTeachers.some(dt => dt.id === t.id)) return false;
+        if (t.dutyType === 'nobetDisi') return false;
+        return true;
+      })
+      .map(t => {
+        const schedule = t.schedule?.[dayOfWeek] || {};
+        const freeHours = settings.lessonCount - Object.keys(schedule).length;
+        const totalDutyCount = assignments.filter(a => a.teacherId === t.id).length;
+        return { teacher: t, freeHours, totalDutyCount };
+      })
+      .filter(item => item.freeHours > 0)
+      .sort((a, b) => {
+        if (b.freeHours !== a.freeHours) return b.freeHours - a.freeHours;
+        return a.totalDutyCount - b.totalDutyCount;
+      })
+      .slice(0, 5);
+  }, [teachers, absentIdSet, dutyTeachers, absentDutyTeachers, dayOfWeek, settings.lessonCount, assignments]);
+
+  // Nöbetçi olmayan ama boş dersi olan öğretmenler
+  const nonDutyFreeSuggestions = useMemo(() => {
+    return teachers
+      .filter(t => {
+        if (t.dutyType === 'nobetDisi') return false;
+        if (dutyTeachers.some(dt => dt.id === t.id)) return false;
+        if (absentIdSet.has(t.id)) return false;
+        return true;
+      })
+      .map(t => {
+        const schedule = t.schedule?.[dayOfWeek] || {};
+        const busySet = new Set(Object.keys(schedule).map(Number));
+        const freeHoursList: number[] = [];
+        for (let h = 1; h <= settings.lessonCount; h++) {
+          if (!busySet.has(h)) freeHoursList.push(h);
+        }
+        return { teacher: t, freeHours: freeHoursList };
+      })
+      .filter(item => item.freeHours.length > 0)
+      .sort((a, b) => b.freeHours.length - a.freeHours.length);
+  }, [teachers, dutyTeachers, absentIdSet, dayOfWeek, settings.lessonCount]);
 
   const handleAutoAssign = () => {
     if (dutyTeachers.length === 0) {
@@ -183,94 +237,110 @@ export default function DailyOperationsTab({
 
   const formattedDate = format(parseISO(selectedDate), 'dd MMMM yyyy EEEE', { locale: tr });
 
-  const handlePrintSubstitutions = () => {
-    const subs = dailySubstitutions
-      .filter(s => s.substituteTeacherId)
-      .sort((a, b) => a.hour - b.hour);
+  const [isPrinting, setIsPrinting] = useState(false);
 
-    if (subs.length === 0) {
+  const printableSubs = useMemo(() => {
+    return dailySubstitutions
+      .filter(s => s.substituteTeacherId)
+      .sort((a, b) => a.hour - b.hour)
+      .map((sub, i) => ({
+        index: i + 1,
+        substitute: teachers.find(t => t.id === sub.substituteTeacherId)?.name || '-',
+        absent: teachers.find(t => t.id === sub.absentTeacherId)?.name || '-',
+        className: sub.className,
+        hour: sub.hour,
+        time: lessonTimes.find(l => l.lesson === sub.hour),
+      }));
+  }, [dailySubstitutions, teachers, lessonTimes]);
+
+  const handlePrintSubstitutions = () => {
+    if (printableSubs.length === 0) {
       alert('Yazdırılacak görevlendirme bulunmuyor.');
       return;
     }
-
-    const rows = subs.map((sub, i) => {
-      const absent = teachers.find(t => t.id === sub.absentTeacherId);
-      const substitute = teachers.find(t => t.id === sub.substituteTeacherId);
-      const lt = lessonTimes.find(l => l.lesson === sub.hour);
-      return `<tr>
-        <td>${i + 1}</td>
-        <td>${substitute?.name || '-'}</td>
-        <td>${absent?.name || '-'}</td>
-        <td>${sub.className}</td>
-        <td>${sub.hour}. Ders${lt ? ` (${lt.start}-${lt.end})` : ''}</td>
-      </tr>`;
-    }).join('');
-
-    const okulAdi = schoolInfo.okulAdi || '';
-    const mudur = schoolInfo.okulMuduru || '';
-    const yardimcilar = (schoolInfo.mudurYardimcilari || []).map(v => v.name);
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    printWindow.document.write(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Görevlendirme Çizelgesi</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; }
-  .header { text-align: center; margin-bottom: 24px; }
-  .header h1 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-  .header h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
-  .header .date { font-size: 13px; color: #475569; }
-  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-  th, td { border: 1.5px solid #334155; padding: 8px 12px; text-align: left; font-size: 13px; }
-  th { background-color: #f1f5f9; font-weight: 700; text-align: center; }
-  td:first-child { text-align: center; width: 40px; }
-  td:last-child { text-align: center; }
-  .signatures { display: flex; justify-content: space-between; margin-top: 60px; padding: 0 20px; }
-  .sig-box { text-align: center; min-width: 160px; }
-  .sig-box .title { font-size: 11px; color: #64748b; margin-bottom: 50px; }
-  .sig-box .name { font-size: 12px; font-weight: 600; border-top: 1px solid #94a3b8; padding-top: 4px; }
-  @media print { body { padding: 20px; } }
-</style></head><body>
-  <div class="header">
-    ${okulAdi ? `<h1>${okulAdi}</h1>` : ''}
-    <h2>Ders Görevlendirme Çizelgesi</h2>
-    <div class="date">${formattedDate}</div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Sıra</th>
-        <th>Görevli Öğretmen</th>
-        <th>Gelmeyen Öğretmen</th>
-        <th>Sınıf</th>
-        <th>Ders Saati</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="signatures">
-    ${yardimcilar.length > 0 ? yardimcilar.map(name => `
-      <div class="sig-box">
-        <div class="title">Müdür Yardımcısı</div>
-        <div class="name">${name}</div>
-      </div>`).join('') : ''}
-    ${mudur ? `
-    <div class="sig-box">
-      <div class="title">Okul Müdürü</div>
-      <div class="name">${mudur}</div>
-    </div>` : ''}
-  </div>
-</body></html>`);
-
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    setIsPrinting(true);
   };
 
+  useEffect(() => {
+    if (isPrinting) {
+      const timer = setTimeout(() => {
+        if ((window as any).electronAPI?.print) {
+          (window as any).electronAPI.print();
+        } else {
+          window.print();
+        }
+        setIsPrinting(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isPrinting]);
+
+  const okulAdi = schoolInfo.okulAdi || '';
+  const mudur = schoolInfo.okulMuduru || '';
+  const yardimcilar = (schoolInfo.mudurYardimcilari || []).map(v => v.name);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 daily-ops-container">
+      {/* Print styles */}
+      {isPrinting && (
+        <style type="text/css" media="print">
+          {`
+            @page { size: portrait; margin: 1.5cm; }
+            .daily-ops-container > *:not(.daily-print-section):not(style) { display: none !important; }
+            .daily-print-section { display: block !important; }
+            .daily-print-section * { color: black !important; }
+            .daily-print-section table { border-collapse: collapse !important; width: 100% !important; }
+            .daily-print-section th, .daily-print-section td { border: 1.5px solid #334155 !important; padding: 8px 12px !important; font-size: 13px !important; }
+            .daily-print-section th { background-color: #f1f5f9 !important; font-weight: 700 !important; text-align: center !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          `}
+        </style>
+      )}
+
+      {/* Printable substitution section */}
+      <div className="daily-print-section hidden" style={isPrinting ? { display: 'none' } : undefined}>
+        <div style={{ textAlign: 'center', marginBottom: '24px', fontFamily: 'Segoe UI, Arial, sans-serif' }}>
+          {okulAdi && <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>{okulAdi}</div>}
+          <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Ders Görevlendirme Çizelgesi</div>
+          <div style={{ fontSize: '13px', color: '#475569' }}>{formattedDate}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: '40px' }}>Sıra</th>
+              <th>Görevli Öğretmen</th>
+              <th>Gelmeyen Öğretmen</th>
+              <th>Sınıf</th>
+              <th>Ders Saati</th>
+            </tr>
+          </thead>
+          <tbody>
+            {printableSubs.map(sub => (
+              <tr key={sub.index}>
+                <td style={{ textAlign: 'center' }}>{sub.index}</td>
+                <td>{sub.substitute}</td>
+                <td>{sub.absent}</td>
+                <td>{sub.className}</td>
+                <td style={{ textAlign: 'center' }}>{sub.hour}. Ders{sub.time ? ` (${sub.time.start}-${sub.time.end})` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '60px', padding: '0 20px' }}>
+          {yardimcilar.map((name, i) => (
+            <div key={i} style={{ textAlign: 'center', minWidth: '160px' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '50px' }}>Müdür Yardımcısı</div>
+              <div style={{ fontSize: '12px', fontWeight: 600, borderTop: '1px solid #94a3b8', paddingTop: '4px' }}>{name}</div>
+            </div>
+          ))}
+          {mudur && (
+            <div style={{ textAlign: 'center', minWidth: '160px' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '50px' }}>Okul Müdürü</div>
+              <div style={{ fontSize: '12px', fontWeight: 600, borderTop: '1px solid #94a3b8', paddingTop: '4px' }}>{mudur}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="bg-surface p-6 rounded-xl shadow-sm border border-slate-200">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
@@ -354,44 +424,76 @@ export default function DailyOperationsTab({
           <div className="p-4 max-h-[500px] overflow-y-auto">
             <div className="space-y-2">
               {teachers.map((teacher) => {
-                const isAbsent = dailyAbsences.some((a) => a.teacherId === teacher.id);
+                const absence = dailyAbsences.find((a) => a.teacherId === teacher.id);
+                const isAbsent = !!absence;
                 const isDuty = dutyTeachers.some(dt => dt.id === teacher.id);
+                const reasonInfo = absence?.reason ? ABSENCE_REASONS.find(r => r.id === absence.reason) : null;
+                const isReasonOpen = reasonPickerFor === teacher.id;
+
                 return (
                   <div
                     key={teacher.id}
-                    className={`flex items-center justify-between p-3 rounded-lg border ${
+                    className={`relative p-3 rounded-lg border ${
                       isAbsent ? 'bg-red-50 border-red-200' : 'bg-surface border-slate-200'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className={`font-medium ${isAbsent ? 'text-red-700' : 'text-slate-700'}`}>
-                        {teacher.name}
-                      </span>
-                      {isDuty && (
-                        <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
-                          Nöbetçi
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`font-medium ${isAbsent ? 'text-red-700' : 'text-slate-700'}`}>
+                          {teacher.name}
                         </span>
-                      )}
+                        {isDuty && (
+                          <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                            Nöbetçi
+                          </span>
+                        )}
+                        {reasonInfo && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600">
+                            {reasonInfo.label}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (isAbsent) {
+                            handleMarkPresent(teacher.id);
+                          } else if (isAdmin) {
+                            setReasonPickerFor(isReasonOpen ? null : teacher.id);
+                          }
+                        }}
+                        disabled={!isAdmin}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-colors flex-shrink-0 ${
+                          isAbsent
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        } ${!isAdmin ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      >
+                        {isAbsent ? (
+                          <>
+                            <UserX className="w-4 h-4" /> Geri Al
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck className="w-4 h-4" /> Yok Yaz
+                            <ChevronDown className="w-3 h-3" />
+                          </>
+                        )}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleToggleAbsence(teacher.id)}
-                      disabled={!isAdmin}
-                      className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${
-                        isAbsent
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      } ${!isAdmin ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                      {isAbsent ? (
-                        <>
-                          <UserX className="w-4 h-4" /> Yok Yazıldı
-                        </>
-                      ) : (
-                        <>
-                          <UserCheck className="w-4 h-4" /> Okulda
-                        </>
-                      )}
-                    </button>
+
+                    {isReasonOpen && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {ABSENCE_REASONS.map(r => (
+                          <button
+                            key={r.id}
+                            onClick={() => handleMarkAbsent(teacher.id, r.id)}
+                            className="px-3 py-1.5 rounded-md text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors border border-red-200"
+                          >
+                            {r.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -508,6 +610,71 @@ export default function DailyOperationsTab({
           </div>
         </div>
       </div>
+
+      {/* Nöbetçi Değişikliği Önerisi */}
+      {absentDutyTeachers.length > 0 && dutyReplacements.length > 0 && (
+        <div className="bg-surface rounded-xl shadow-sm border border-amber-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-amber-200 bg-amber-50/50 flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-amber-600" />
+            <div>
+              <h3 className="font-semibold text-amber-800">Nöbet Değişikliği Gerekli</h3>
+              <p className="text-xs text-amber-600 mt-0.5">
+                {absentDutyTeachers.map(t => t.name).join(', ')} bugün nöbetçi olduğu halde devamsız.
+              </p>
+            </div>
+          </div>
+          <div className="p-4">
+            <p className="text-sm font-medium text-slate-700 mb-3">Önerilen yedek nöbetçiler:</p>
+            <div className="space-y-2">
+              {dutyReplacements.map((item, i) => (
+                <div key={item.teacher.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold text-amber-700 w-6">{i + 1}.</span>
+                    <div>
+                      <span className="text-sm font-medium text-slate-800">{item.teacher.name}</span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-emerald-600 font-medium">{item.freeHours} boş ders</span>
+                        <span className="text-xs text-slate-400">|</span>
+                        <span className="text-xs text-slate-500">Toplam {item.totalDutyCount} nöbet</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Boş Dersi Olan Öğretmenler (nöbetçi olmayan) */}
+      {dailyAbsences.length > 0 && nonDutyFreeSuggestions.length > 0 && (
+        <div className="bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center gap-2">
+            <Lightbulb className="w-5 h-5 text-violet-600" />
+            <div>
+              <h3 className="font-semibold text-slate-800">Görevlendirilebilecek Öğretmenler</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Nöbetçi olmadığı halde bugün boş dersi olan öğretmenler</p>
+            </div>
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {nonDutyFreeSuggestions.slice(0, 12).map(item => (
+                <div key={item.teacher.id} className="flex items-center justify-between p-2.5 rounded-lg border border-violet-100 bg-violet-50/30">
+                  <span className="text-sm font-medium text-slate-700 truncate mr-2">{item.teacher.name}</span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="text-xs font-semibold bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
+                      {item.freeHours.length} boş
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      ({item.freeHours.join(', ')}. ders)
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

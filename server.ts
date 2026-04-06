@@ -8,11 +8,30 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 // CJS (pkg/esbuild) ve ESM (tsx dev) ortamlarında güvenle çalışır
 const __dirname = process.cwd();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-local-dev';
+
+// ---- Lisans Sistemi ----
+// Bu değeri kendinize özel bir şeyle değiştirin ve kimseyle paylaşmayın.
+// generate-license.cjs dosyasındaki değerle aynı olmalıdır.
+const LICENSE_SECRET = process.env.LICENSE_SECRET || 'okul-nobet-2025-BURAYA-KENDI-GIZLI-ANAHTARINIZI-YAZIN';
+
+function generateLicenseKey(kurumKodu: string): string {
+  const hmac = crypto.createHmac('sha256', LICENSE_SECRET);
+  hmac.update(kurumKodu);
+  const hex = hmac.digest('hex').substring(0, 16).toUpperCase();
+  return `${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`;
+}
+
+function validateLicenseKey(kurumKodu: string, key: string): boolean {
+  const cleanKey = key.trim().replace(/-/g, '').toUpperCase();
+  const expected = generateLicenseKey(kurumKodu).replace(/-/g, '');
+  return cleanKey === expected;
+}
 
 // pkg ile paketlendiğinde process.pkg tanımlıdır
 const isPkg = !!(process as any).pkg;
@@ -115,13 +134,17 @@ async function startServer() {
 
   // Auth: Register
   app.post('/api/auth/register', (req, res) => {
-    const { kurumKodu, adminPassword, teacherPassword } = req.body;
+    const { kurumKodu, adminPassword, teacherPassword, licenseKey } = req.body;
 
-    if (!kurumKodu || !adminPassword || !teacherPassword) {
-      return res.status(400).json({ error: 'Missing fields' });
+    if (!kurumKodu || !adminPassword || !teacherPassword || !licenseKey) {
+      return res.status(400).json({ error: 'Lütfen tüm alanları doldurun (lisans anahtarı dahil).' });
     }
 
     const cleanKurumKodu = kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+    if (!validateLicenseKey(cleanKurumKodu, licenseKey)) {
+      return res.status(400).json({ error: 'Geçersiz lisans anahtarı. Lütfen size verilen anahtarı doğru girdiğinizden emin olun.' });
+    }
     const adminEmail = `admin@${cleanKurumKodu}.nobet.app`;
     const teacherEmail = `teacher@${cleanKurumKodu}.nobet.app`;
 

@@ -1,7 +1,7 @@
 {
   "name": "okul-nobet-programi",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.4.0",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {

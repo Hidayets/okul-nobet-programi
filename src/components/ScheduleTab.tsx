@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { format, parseISO, getISOWeek } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { Calendar, Printer, Send, X, CheckCircle2, BarChart3 } from 'lucide-react';
-import { Teacher, Location, Assignment, SchoolInfo } from '../types';
+import { Teacher, Location, Assignment, SchoolInfo, formatAcademicYear } from '../types';
 
 interface Props {
   assignments: Assignment[];
@@ -10,11 +10,13 @@ interface Props {
   locations: Location[];
   schoolInfo: SchoolInfo;
   isAdmin?: boolean;
+  activeYear?: string;
 }
 
-export default function ScheduleTab({ assignments, teachers, locations, schoolInfo, isAdmin = false }: Props) {
+export default function ScheduleTab({ assignments, teachers, locations, schoolInfo, isAdmin = false, activeYear }: Props) {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<'idle' | 'sending' | 'success'>('idle');
+  const [printMode, setPrintMode] = useState<'schedule' | 'dutyCounts' | null>(null);
 
   const scheduleData = useMemo(() => {
     const data: Record<string, Record<string, Teacher[]>> = {};
@@ -39,6 +41,13 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
     return { data, sortedDates };
   }, [assignments, teachers, locations]);
 
+  const uniqueTeachersInSchedule = useMemo(() => {
+    const teacherIds = new Set(assignments.map(a => a.teacherId));
+    return teachers
+      .filter(t => teacherIds.has(t.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  }, [assignments, teachers]);
+
   const dutyCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     assignments.forEach(a => {
@@ -50,7 +59,7 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
       .sort((a, b) => b.count - a.count);
   }, [assignments, teachers]);
 
-  const handlePrint = () => {
+  const triggerPrint = () => {
     if ((window as any).electronAPI?.print) {
       (window as any).electronAPI.print();
     } else {
@@ -58,47 +67,23 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
     }
   };
 
-  const handlePrintDutyCounts = () => {
-    const rows = dutyCounts
-      .map((t, i) => `<tr><td style="border:1px solid #000;padding:4px 8px;text-align:center">${i + 1}</td><td style="border:1px solid #000;padding:4px 8px">${t.name}</td><td style="border:1px solid #000;padding:4px 8px;text-align:center;font-weight:bold">${t.count}</td></tr>`)
-      .join('');
-
-    const firstD = scheduleData.sortedDates[0];
-    const lastD = scheduleData.sortedDates[scheduleData.sortedDates.length - 1];
-    const dateRange = firstD && lastD
-      ? `${format(parseISO(firstD), 'dd.MM.yyyy')} - ${format(parseISO(lastD), 'dd.MM.yyyy')}`
-      : '';
-
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Nöbet Sayıları</title><style>
-      body{font-family:Arial,sans-serif;padding:20px}
-      h2,h3{text-align:center;margin:4px 0}
-      table{border-collapse:collapse;width:100%;margin-top:12px}
-      @media print{@page{size:portrait;margin:1cm}}
-    </style></head><body>
-      <h2>${schoolInfo.okulAdi ? schoolInfo.okulAdi.toLocaleUpperCase('tr-TR') : 'OKUL'}</h2>
-      <h3>ÖĞRETMEN NÖBET SAYILARI</h3>
-      <p style="text-align:center;font-size:12px;color:#555;margin:4px 0 12px">${dateRange}</p>
-      <table>
-        <thead><tr>
-          <th style="border:1px solid #000;padding:4px 8px;background:#f0f0f0;width:40px">#</th>
-          <th style="border:1px solid #000;padding:4px 8px;background:#f0f0f0;text-align:left">Öğretmen Adı</th>
-          <th style="border:1px solid #000;padding:4px 8px;background:#f0f0f0;width:80px">Nöbet Sayısı</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="text-align:right;margin-top:40px">
-        <div style="font-weight:bold">${schoolInfo.okulMuduru || ''}</div>
-        <div>Okul Müdürü</div>
-      </div>
-      <script>window.onload=function(){window.print()}<\/script>
-    </body></html>`;
-
-    const w = window.open('', '_blank', 'width=600,height=700');
-    if (w) {
-      w.document.write(html);
-      w.document.close();
-    }
+  const handlePrint = () => {
+    setPrintMode('schedule');
   };
+
+  const handlePrintDutyCounts = () => {
+    setPrintMode('dutyCounts');
+  };
+
+  useEffect(() => {
+    if (printMode) {
+      const timer = setTimeout(() => {
+        triggerPrint();
+        setPrintMode(null);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [printMode]);
 
   const [emailResult, setEmailResult] = useState<{ sent: number; failed: number; details?: any[] } | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -228,12 +213,14 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
 
   const firstDate = scheduleData.sortedDates[0];
   const monthName = firstDate ? format(parseISO(firstDate), 'MMMM', { locale: tr }).toLocaleUpperCase('tr-TR') : '';
+  const yearLabel = activeYear ? formatAcademicYear(activeYear) : '';
 
   return (
     <div className="space-y-6 relative">
+      {/* Dynamic print CSS based on printMode */}
       <style type="text/css" media="print">
         {`
-          @page { size: landscape; margin: 0.5cm; }
+          @page { margin: 0.5cm; }
           html, body { font-size: 9pt !important; }
           table { border-collapse: collapse !important; width: 100% !important; table-layout: fixed !important; }
           th, td { border: 1px solid black !important; padding: 2px 4px !important; color: black !important; background-color: transparent !important; font-size: 8pt !important; line-height: 1.2 !important; }
@@ -244,8 +231,21 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
           .print-footer-block { font-size: 7pt !important; margin-top: 6px !important; }
           .print-footer-block li { margin-bottom: 0 !important; }
           .print-week-sep td { padding: 1px 4px !important; font-size: 7pt !important; }
+          ${printMode === 'schedule' ? `
+            @page { size: landscape; }
+            .duty-counts-print-section { display: none !important; }
+          ` : ''}
+          ${printMode === 'dutyCounts' ? `
+            @page { size: portrait; }
+            .schedule-print-section { display: none !important; }
+            .duty-counts-print-section { display: block !important; position: static !important; left: auto !important; top: auto !important; }
+            .duty-counts-print-section table { table-layout: auto !important; }
+            .duty-counts-print-section th, .duty-counts-print-section td { font-size: 10pt !important; padding: 4px 8px !important; }
+          ` : ''}
         `}
       </style>
+
+      {/* Screen UI controls */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface p-6 rounded-xl shadow-sm border border-slate-200 print:hidden">
         <div>
           <h2 className="text-xl font-semibold text-slate-800">Nöbet Çizelgesi</h2>
@@ -268,7 +268,7 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
             className="bg-surface border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
           >
             <BarChart3 className="w-4 h-4" />
-            Nöbet Sayıları
+            Nöbet Sayıları Yazdır
           </button>
           <button
             onClick={handlePrint}
@@ -280,7 +280,8 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
         </div>
       </div>
 
-      <div className="bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-none print:overflow-visible">
+      {/* Schedule Table - printable for 'schedule' mode */}
+      <div className="schedule-print-section bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-none print:overflow-visible">
         
         {/* Print Header */}
         <div className="hidden print:block text-center font-bold print-header-block">
@@ -389,6 +390,31 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
             <li>Nöbeti sonunda nöbet defterine nöbeti ile ilgili raporu yazar ve imzalar.</li>
           </ol>
 
+          {uniqueTeachersInSchedule.length > 0 && (
+            <div style={{ marginTop: '12px', pageBreakInside: 'avoid' }}>
+              <h4 className="font-bold mb-1 underline">NÖBET PROGRAMI İMZA ÇİZELGESİ</h4>
+              <p style={{ fontSize: '7pt', marginBottom: '4px' }}>Yukarıdaki nöbet programını okudum, anladım ve kabul ettim.</p>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ border: '1px solid #000', padding: '2px 6px', background: '#f0f0f0', width: '30px', fontSize: '7pt' }}>#</th>
+                    <th style={{ border: '1px solid #000', padding: '2px 6px', background: '#f0f0f0', textAlign: 'left', fontSize: '7pt' }}>Öğretmen Adı Soyadı</th>
+                    <th style={{ border: '1px solid #000', padding: '2px 6px', background: '#f0f0f0', width: '120px', fontSize: '7pt' }}>İmza</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uniqueTeachersInSchedule.map((teacher, i) => (
+                    <tr key={teacher.id}>
+                      <td style={{ border: '1px solid #000', padding: '2px 6px', textAlign: 'center', fontSize: '7pt' }}>{i + 1}</td>
+                      <td style={{ border: '1px solid #000', padding: '2px 6px', fontSize: '7pt' }}>{teacher.name}</td>
+                      <td style={{ border: '1px solid #000', padding: '2px 6px', height: '20px' }}></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="flex justify-end items-start mt-4">
             <div className="text-center">
               <div className="font-bold">{schoolInfo.okulMuduru}</div>
@@ -399,7 +425,45 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
 
       </div>
 
-      {/* Duty Counts Summary */}
+      {/* Duty Counts Print Section - hidden on screen, visible only in print when printMode is dutyCounts */}
+      {printMode === 'dutyCounts' && (
+      <div className="duty-counts-print-section" style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+        <div className="text-center font-bold" style={{ marginBottom: '12px' }}>
+          <div>T.C.</div>
+          {schoolInfo.valilik && <div>{schoolInfo.valilik.toLocaleUpperCase('tr-TR')} VALİLİĞİ</div>}
+          {schoolInfo.kaymakamlik && <div>{schoolInfo.kaymakamlik.toLocaleUpperCase('tr-TR')} KAYMAKAMLIĞI</div>}
+          {schoolInfo.okulAdi && <div>{schoolInfo.okulAdi.toLocaleUpperCase('tr-TR')}</div>}
+          <div style={{ marginTop: '8px', fontSize: '14pt' }}>ÖĞRETMEN NÖBET SAYILARI</div>
+          <div style={{ fontSize: '10pt', fontWeight: 'normal', color: '#555', marginTop: '4px' }}>
+            {yearLabel || 'Eğitim-Öğretim Yılı'}
+          </div>
+        </div>
+        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ border: '1px solid #000', padding: '4px 8px', background: '#f0f0f0', width: '40px' }}>#</th>
+              <th style={{ border: '1px solid #000', padding: '4px 8px', background: '#f0f0f0', textAlign: 'left' }}>Öğretmen Adı</th>
+              <th style={{ border: '1px solid #000', padding: '4px 8px', background: '#f0f0f0', width: '80px' }}>Nöbet Sayısı</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dutyCounts.map((item, i) => (
+              <tr key={i}>
+                <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center' }}>{i + 1}</td>
+                <td style={{ border: '1px solid #000', padding: '4px 8px' }}>{item.name}</td>
+                <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold' }}>{item.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ textAlign: 'right', marginTop: '40px' }}>
+          <div style={{ fontWeight: 'bold' }}>{schoolInfo.okulMuduru || ''}</div>
+          <div>Okul Müdürü</div>
+        </div>
+      </div>
+      )}
+
+      {/* Duty Counts Summary on screen */}
       {dutyCounts.length > 0 && (
         <div className="bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden print:hidden">
           <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
@@ -409,7 +473,9 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
               </div>
               <div>
                 <h3 className="font-semibold text-slate-800">Öğretmen Nöbet Sayıları</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{dutyCounts.length} öğretmen, toplam {assignments.length} nöbet</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {yearLabel ? `${yearLabel} — ` : ''}{dutyCounts.length} öğretmen, toplam {assignments.length} nöbet
+                </p>
               </div>
             </div>
             <button
@@ -570,4 +636,3 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
     </div>
   );
 }
-

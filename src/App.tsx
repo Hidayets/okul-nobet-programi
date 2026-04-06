@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut, GraduationCap, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut, GraduationCap, ChevronDown, BarChart3 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo, getCurrentAcademicYear, formatAcademicYear } from './types';
+import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo, Holiday, getCurrentAcademicYear, formatAcademicYear } from './types';
 import TeachersTab from './components/TeachersTab';
 import LocationsTab from './components/LocationsTab';
 import GeneratorTab from './components/GeneratorTab';
@@ -9,13 +9,14 @@ import ScheduleTab from './components/ScheduleTab';
 import DailyOperationsTab from './components/DailyOperationsTab';
 import SettingsTab from './components/SettingsTab';
 import SchedulesTab from './components/SchedulesTab';
+import AbsenceTrackingTab from './components/AbsenceTrackingTab';
 import Login from './components/Login';
 import Register from './components/Register';
 import { useAuth } from './AuthContext';
 import { useApiSync } from './hooks/useApiSync';
 import { useApiDoc } from './hooks/useApiDoc';
 
-type Tab = 'teachers' | 'locations' | 'generator' | 'schedule' | 'daily' | 'settings' | 'schedules';
+type Tab = 'teachers' | 'locations' | 'generator' | 'schedule' | 'daily' | 'absenceTracking' | 'settings' | 'schedules';
 
 export default function App() {
   const { user, loading, signOut } = useAuth();
@@ -38,6 +39,7 @@ export default function App() {
   const [assignments, setAssignments] = useApiSync<Assignment>(scopedCollection('assignments'), []);
   const [absences, setAbsences] = useApiSync<Absence>(scopedCollection('absences'), []);
   const [substitutions, setSubstitutions] = useApiSync<Substitution>(scopedCollection('substitutions'), []);
+  const [holidays, setHolidays] = useApiSync<Holiday>(scopedCollection('holidays'), []);
 
   const [schoolInfo, setSchoolInfo] = useApiDoc<SchoolInfo>('schoolInfo/info', {
     valilik: '',
@@ -84,6 +86,7 @@ export default function App() {
     { id: 'generator', label: 'Program Oluştur', icon: Settings, adminOnly: true },
     { id: 'schedule', label: 'Nöbet Çizelgesi', icon: Calendar, adminOnly: false },
     { id: 'daily', label: 'Günlük İşlemler', icon: ClipboardList, adminOnly: false },
+    { id: 'absenceTracking', label: 'Devamsızlık Takip', icon: BarChart3, adminOnly: false },
     { id: 'settings', label: 'Ayarlar', icon: Settings, adminOnly: true },
   ] as const;
 
@@ -178,8 +181,13 @@ export default function App() {
         {activeTab === 'generator' && isAdmin && (
           <GeneratorTab 
             teachers={teachers} 
-            locations={locations} 
-            onGenerate={setAssignments} 
+            locations={locations}
+            holidays={holidays}
+            onGenerate={(newAssignments) => {
+              const newDates = new Set(newAssignments.map(a => a.date));
+              const kept = assignments.filter(a => !newDates.has(a.date));
+              setAssignments([...kept, ...newAssignments]);
+            }} 
             onSuccess={() => setActiveTab('schedule')}
             schoolInfo={schoolInfo}
           />
@@ -191,6 +199,7 @@ export default function App() {
             locations={locations} 
             schoolInfo={schoolInfo}
             isAdmin={isAdmin}
+            activeYear={activeYear}
           />
         )}
         {activeTab === 'daily' && (
@@ -205,10 +214,21 @@ export default function App() {
             schoolInfo={schoolInfo}
           />
         )}
+        {activeTab === 'absenceTracking' && (
+          <AbsenceTrackingTab
+            teachers={teachers}
+            absences={absences}
+            schoolInfo={schoolInfo}
+            activeYear={activeYear}
+          />
+        )}
         {activeTab === 'settings' && isAdmin && (
           <SettingsTab
             schoolInfo={schoolInfo}
             setSchoolInfo={setSchoolInfo}
+            holidays={holidays}
+            setHolidays={setHolidays}
+            activeYear={activeYear}
           />
         )}
       </main>

@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Save, Plus, Trash2, Building2, CheckCircle2, Clock, CalendarDays, Palette, Check, KeyRound, ShieldCheck, Users, Eye, EyeOff, GraduationCap, Mail } from 'lucide-react';
+import { Save, Plus, Trash2, Building2, CheckCircle2, Clock, CalendarDays, Palette, Check, KeyRound, ShieldCheck, Users, Eye, EyeOff, GraduationCap, Mail, CalendarX2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { SchoolInfo, VicePrincipal, SchoolSettings, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, getCurrentAcademicYear, formatAcademicYear } from '../types';
+import { format, parseISO } from 'date-fns';
+import { tr } from 'date-fns/locale';
+import { SchoolInfo, VicePrincipal, SchoolSettings, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, getCurrentAcademicYear, formatAcademicYear, Holiday } from '../types';
 import { useTheme, THEMES } from '../ThemeContext';
 import { cn } from '../lib/utils';
+import { fetchMebHolidays } from '../lib/mebCalendar';
 
 interface Props {
   schoolInfo: SchoolInfo;
   setSchoolInfo: React.Dispatch<React.SetStateAction<SchoolInfo>>;
+  holidays: Holiday[];
+  setHolidays: React.Dispatch<React.SetStateAction<Holiday[]>>;
+  activeYear: string;
 }
 
 const DAYS_OF_WEEK = [
@@ -20,7 +26,7 @@ const DAYS_OF_WEEK = [
   { id: 0, label: 'Pazar', short: 'Paz' },
 ];
 
-export default function SettingsTab({ schoolInfo, setSchoolInfo }: Props) {
+export default function SettingsTab({ schoolInfo, setSchoolInfo, holidays, setHolidays, activeYear }: Props) {
   const { theme, setTheme } = useTheme();
   const [info, setInfo] = useState<SchoolInfo>(schoolInfo);
   const [newVpName, setNewVpName] = useState('');
@@ -189,6 +195,64 @@ export default function SettingsTab({ schoolInfo, setSchoolInfo }: Props) {
       ? current.filter(d => d !== dayId)
       : [...current, dayId];
     updateSettings({ schoolDays: updated });
+  };
+
+  const [newHolidayDate, setNewHolidayDate] = useState('');
+  const [newHolidayName, setNewHolidayName] = useState('');
+
+  const handleAddHoliday = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHolidayDate || !newHolidayName.trim()) return;
+    if (holidays.some(h => h.date === newHolidayDate)) return;
+    setHolidays([...holidays, {
+      id: uuidv4(),
+      date: newHolidayDate,
+      name: newHolidayName.trim(),
+    }]);
+    setNewHolidayDate('');
+    setNewHolidayName('');
+  };
+
+  const handleDeleteHoliday = (id: string) => {
+    setHolidays(holidays.filter(h => h.id !== id));
+  };
+
+  const [fetchingMeb, setFetchingMeb] = useState(false);
+  const [mebResult, setMebResult] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
+
+  const handleFetchMeb = async () => {
+    setFetchingMeb(true);
+    setMebResult(null);
+    try {
+      const { holidays: fetched, source } = await fetchMebHolidays(activeYear);
+
+      if (fetched.length === 0) {
+        setMebResult({
+          type: 'warning',
+          text: `${formatAcademicYear(activeYear)} için henüz takvim verisi bulunamadı. Tatil günlerini elle ekleyebilirsiniz.`,
+        });
+        return;
+      }
+
+      const existingDates = new Set(holidays.map(h => h.date));
+      const newHolidays = fetched.filter(h => !existingDates.has(h.date));
+
+      if (newHolidays.length === 0) {
+        setMebResult({ type: 'success', text: 'Tüm tatil günleri zaten yüklü.' });
+        return;
+      }
+
+      setHolidays([...holidays, ...newHolidays]);
+      const sourceLabel = source === 'meb' ? 'MEB resmi takviminden' : 'resmi tatil verilerinden';
+      setMebResult({
+        type: 'success',
+        text: `${newHolidays.length} tatil günü ${sourceLabel} yüklendi. (Toplam: ${fetched.length})`,
+      });
+    } catch {
+      setMebResult({ type: 'error', text: 'Takvim verileri alınamadı. Lütfen tekrar deneyin.' });
+    } finally {
+      setFetchingMeb(false);
+    }
   };
 
   return (
@@ -755,6 +819,118 @@ export default function SettingsTab({ schoolInfo, setSchoolInfo }: Props) {
             Bu ayar nöbet programı oluşturma ve diğer hesaplamalarda otomatik kullanılacaktır.
           </p>
         </div>
+      </div>
+
+      {/* Tatil ve Özel Günler */}
+      <div className="bg-surface p-8 rounded-2xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+          <div className="bg-rose-100 p-2 rounded-lg text-rose-600">
+            <CalendarX2 className="w-6 h-6" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-xl font-semibold text-slate-800">Tatil ve Özel Günler</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Nöbet programından çıkarılacak tatil ve özel günleri tanımlayın</p>
+          </div>
+        </div>
+
+        <div className="mb-5">
+          <button
+            onClick={handleFetchMeb}
+            disabled={fetchingMeb}
+            className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-wait shadow-sm"
+          >
+            {fetchingMeb ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Yükleniyor...
+              </>
+            ) : (
+              <>
+                <CalendarX2 className="w-4 h-4" />
+                MEB {formatAcademicYear(activeYear)} Takviminden Yükle
+              </>
+            )}
+          </button>
+          <p className="text-xs text-slate-400 mt-2">
+            MEB resmi takviminden ara tatiller, yarıyıl tatili, dini bayramlar ve resmi tatiller otomatik yüklenir.
+            29 Ekim, 23 Nisan ve 19 Mayıs MEB tarafından iş günü sayıldığı için dahil edilmez.
+          </p>
+
+          {mebResult && (
+            <div className={`mt-3 px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
+              mebResult.type === 'success'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : mebResult.type === 'warning'
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+            }`}>
+              {mebResult.type === 'success' && <CheckCircle2 className="w-4 h-4 flex-shrink-0" />}
+              {mebResult.text}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-100 pt-5">
+          <h3 className="text-sm font-medium text-slate-700 mb-3">Elle Tatil Günü Ekle</h3>
+        </div>
+
+        <form onSubmit={handleAddHoliday} className="flex flex-col sm:flex-row gap-3 mb-4">
+          <input
+            type="date"
+            value={newHolidayDate}
+            onChange={(e) => setNewHolidayDate(e.target.value)}
+            className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+          />
+          <input
+            type="text"
+            value={newHolidayName}
+            onChange={(e) => setNewHolidayName(e.target.value)}
+            placeholder="Tatil adı (Örn: Cumhuriyet Bayramı)"
+            className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+          />
+          <button
+            type="submit"
+            disabled={!newHolidayDate || !newHolidayName.trim() || holidays.some(h => h.date === newHolidayDate)}
+            className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Ekle
+          </button>
+        </form>
+
+        {holidays.some(h => h.date === newHolidayDate) && newHolidayDate && (
+          <p className="text-xs text-amber-600 mb-3">Bu tarih zaten eklenmiş.</p>
+        )}
+
+        {holidays.length === 0 ? (
+          <div className="text-sm text-slate-500 bg-slate-50 rounded-lg p-4 border border-dashed border-slate-300">
+            Henüz tatil günü eklenmemiş. Nöbet programından çıkarılmasını istediğiniz günleri ekleyin.
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+            {[...holidays].sort((a, b) => a.date.localeCompare(b.date)).map(h => (
+              <li key={h.id} className="px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <CalendarX2 className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                  <span className="text-sm font-medium text-slate-700">
+                    {format(parseISO(h.date), 'dd MMMM yyyy EEEE', { locale: tr })}
+                  </span>
+                  <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">{h.name}</span>
+                </div>
+                <button
+                  onClick={() => handleDeleteHoliday(h.id)}
+                  className="text-red-500 hover:text-red-700 p-1 rounded-md hover:bg-red-50 transition-colors flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="text-xs text-slate-400 mt-3">
+          Toplam {holidays.length} tatil/özel gün tanımlı. Bu günlerde nöbet ataması yapılmayacaktır.
+        </p>
       </div>
 
       {/* Gmail Yapılandırma */}

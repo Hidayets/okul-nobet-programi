@@ -11,10 +11,17 @@ export interface Teacher {
   name: string;
   email?: string;
   dutyType?: DutyType;
+  unavailableDays?: number[]; // Days of week teacher can't do duty (0=Sun, 1=Mon, ..., 5=Fri)
   // schedule[dayOfWeek][hour] = className
   // dayOfWeek: 1 (Mon) to 5 (Fri)
   // hour: 1 to 8 (or more)
   schedule?: Record<number, Record<number, string>>;
+}
+
+export interface Holiday {
+  id: string;
+  date: string; // YYYY-MM-DD
+  name: string;
 }
 
 export interface ClassInfo {
@@ -48,10 +55,20 @@ export interface ScheduleConfig {
   activeDays: number[]; // 1=Mon, 2=Tue, ..., 5=Fri
 }
 
+export type AbsenceReason = 'mazeret' | 'rapor' | 'gorevliIzinli' | 'diger';
+
+export const ABSENCE_REASONS: { id: AbsenceReason; label: string; color: string }[] = [
+  { id: 'mazeret', label: 'Mazeret İzni', color: 'amber' },
+  { id: 'rapor', label: 'Raporlu', color: 'red' },
+  { id: 'gorevliIzinli', label: 'Görevli İzinli', color: 'blue' },
+  { id: 'diger', label: 'Diğer', color: 'slate' },
+];
+
 export interface Absence {
   id: string;
   date: string; // YYYY-MM-DD
   teacherId: string;
+  reason?: AbsenceReason;
 }
 
 export interface Substitution {

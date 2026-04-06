@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../AuthContext';
 
 export function useApiSync<T extends { id: string }>(collectionName: string, initialValue: T[] = []) {
   const [data, setData] = useState<T[]>(initialValue);
   const { user } = useAuth();
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -25,33 +27,21 @@ export function useApiSync<T extends { id: string }>(collectionName: string, ini
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
 
-    // Listen for cross-tab synchronization
-    const channel = new BroadcastChannel('app-sync');
-    channel.onmessage = (event) => {
-      if (event.data.type === 'SYNC' && event.data.collection === collectionName) {
-        fetchData();
-      }
-    };
+  const updateData = useCallback(async (newData: T[] | ((prev: T[]) => T[])) => {
+    const current = dataRef.current;
+    const nextData = typeof newData === 'function' ? (newData as (prev: T[]) => T[])(current) : newData;
 
-    return () => {
-      channel.close();
-    };
-  }, [fetchData, collectionName]);
-
-  const updateData = async (newData: T[] | ((prev: T[]) => T[])) => {
-    const nextData = typeof newData === 'function' ? (newData as any)(data) : newData;
-    
-    // Find what changed
-    const added = nextData.filter((item: T) => !data.find(d => d.id === item.id));
-    const removed = data.filter(item => !nextData.find((d: T) => d.id === item.id));
+    const added = nextData.filter((item: T) => !current.find(d => d.id === item.id));
+    const removed = current.filter(item => !nextData.find((d: T) => d.id === item.id));
     const updated = nextData.filter((item: T) => {
-      const old = data.find(d => d.id === item.id);
+      const old = current.find(d => d.id === item.id);
       return old && JSON.stringify(old) !== JSON.stringify(item);
     });
 
-    // Optimistic update
     setData(nextData);
+    dataRef.current = nextData;
 
     const token = localStorage.getItem('token');
     const headers = {
@@ -59,42 +49,44 @@ export function useApiSync<T extends { id: string }>(collectionName: string, ini
       'Content-Type': 'application/json'
     };
 
+    let hasError = false;
+
     try {
-      // Process additions
       for (const item of added) {
-        await fetch(`/api/data/${collectionName}`, {
+        const res = await fetch(`/api/data/${collectionName}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(item)
         });
+        if (!res.ok) hasError = true;
       }
 
-      // Process updates
       for (const item of updated) {
-        await fetch(`/api/data/${collectionName}/${item.id}`, {
+        const res = await fetch(`/api/data/${collectionName}/${item.id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify(item)
         });
+        if (!res.ok) hasError = true;
       }
 
-      // Process removals
       for (const item of removed) {
-        await fetch(`/api/data/${collectionName}/${item.id}`, {
+        const res = await fetch(`/api/data/${collectionName}/${item.id}`, {
           method: 'DELETE',
           headers
         });
+        if (!res.ok) hasError = true;
       }
 
-      // Notify other tabs
-      const channel = new BroadcastChannel('app-sync');
-      channel.postMessage({ type: 'SYNC', collection: collectionName });
-      channel.close();
+      if (hasError) {
+        console.error(`Sync error for ${collectionName}, refetching...`);
+        await fetchData();
+      }
     } catch (err) {
       console.error(`Error syncing ${collectionName}:`, err);
-      // In a real app, we might want to revert the optimistic update here
+      await fetchData();
     }
-  };
+  }, [collectionName, fetchData]);
 
   return [data, updateData] as const;
 }

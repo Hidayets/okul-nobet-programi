@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, KeyRound, ArrowLeft, Loader2, ShieldCheck, Users } from 'lucide-react';
+import { Building2, KeyRound, ArrowLeft, Loader2, ShieldCheck, Users, BadgeCheck } from 'lucide-react';
 
 interface Props {
   onBackToLogin: () => void;
@@ -7,19 +7,31 @@ interface Props {
 
 export default function Register({ onBackToLogin }: Props) {
   const [kurumKodu, setKurumKodu] = useState('');
+  const [licenseKey, setLicenseKey] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [teacherPassword, setTeacherPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  const formatLicenseInput = (value: string) => {
+    const clean = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 16);
+    const parts = clean.match(/.{1,4}/g) || [];
+    return parts.join('-');
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const cleanKurumKodu = kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const cleanLicense = licenseKey.replace(/-/g, '').trim();
     
-    if (!cleanKurumKodu || !adminPassword || !teacherPassword) {
+    if (!cleanKurumKodu || !cleanLicense || !adminPassword || !teacherPassword) {
       setError('Lütfen tüm alanları doldurun. Kurum kodu sadece harf ve rakamlardan oluşmalıdır.');
+      return;
+    }
+    if (cleanLicense.length !== 16) {
+      setError('Lisans anahtarı 16 haneli olmalıdır (XXXX-XXXX-XXXX-XXXX).');
       return;
     }
     if (adminPassword.length < 6 || teacherPassword.length < 6) {
@@ -42,6 +54,7 @@ export default function Register({ onBackToLogin }: Props) {
         },
         body: JSON.stringify({
           kurumKodu: cleanKurumKodu,
+          licenseKey: cleanLicense,
           adminPassword,
           teacherPassword
         })
@@ -129,6 +142,30 @@ export default function Register({ onBackToLogin }: Props) {
                   onChange={(e) => setKurumKodu(e.target.value)}
                   className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
                   placeholder="Örn: 123456"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="licenseKey" className="block text-sm font-medium text-slate-700">
+                Lisans Anahtarı
+              </label>
+              <p className="text-xs text-slate-500 mb-2">
+                Size verilen tek seferlik lisans anahtarını girin.
+              </p>
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <BadgeCheck className="h-5 w-5 text-slate-400" />
+                </div>
+                <input
+                  id="licenseKey"
+                  type="text"
+                  required
+                  value={licenseKey}
+                  onChange={(e) => setLicenseKey(formatLicenseInput(e.target.value))}
+                  className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border font-mono tracking-wider"
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  maxLength={19}
                 />
               </div>
             </div>

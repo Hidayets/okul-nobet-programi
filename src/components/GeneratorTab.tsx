@@ -2,11 +2,12 @@ import { useState, useMemo } from 'react';
 import { format, addDays, isBefore, isSameDay, getDay, parseISO, startOfWeek } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { Calendar as CalendarIcon, Settings2, AlertCircle, Repeat, MapPin, Users, BarChart3, RefreshCw, ArrowRightLeft } from 'lucide-react';
-import { Teacher, Location, Assignment, SchoolInfo, DEFAULT_SCHOOL_SETTINGS } from '../types';
+import { Teacher, Location, Assignment, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, Holiday } from '../types';
 
 interface Props {
   teachers: Teacher[];
   locations: Location[];
+  holidays: Holiday[];
   onGenerate: (assignments: Assignment[]) => void;
   onSuccess: () => void;
   schoolInfo: SchoolInfo;
@@ -28,7 +29,7 @@ const DAY_SHORT: Record<number, string> = {
 
 type RotationMode = 'locationBased' | 'standard' | 'rotating' | 'staircase';
 
-export default function GeneratorTab({ teachers, locations, onGenerate, onSuccess, schoolInfo }: Props) {
+export default function GeneratorTab({ teachers, locations, holidays, onGenerate, onSuccess, schoolInfo }: Props) {
   const settings = schoolInfo.settings ?? DEFAULT_SCHOOL_SETTINGS;
   const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(addDays(new Date(), 30), 'yyyy-MM-dd'));
@@ -38,6 +39,7 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
 
   const totalDuties = locations.reduce((sum, loc) => sum + (loc.duties?.length || 0), 0);
   const eligibleTeachers = useMemo(() => teachers.filter(t => t.dutyType !== 'nobetDisi'), [teachers]);
+  const holidayDates = useMemo(() => new Set(holidays.map(h => h.date)), [holidays]);
 
   const weeklyStats = useMemo(() => {
     const daySlots = new Map<number, string[]>();
@@ -99,12 +101,18 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
     let currentDate = start;
 
     while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
-      const dayOfWeek = getDay(currentDate);
       const dateStr = format(currentDate, 'yyyy-MM-dd');
+      if (holidayDates.has(dateStr)) {
+        currentDate = addDays(currentDate, 1);
+        continue;
+      }
+      const dayOfWeek = getDay(currentDate);
 
       for (const location of locations) {
         for (const duty of (location.duties || [])) {
           if (duty.day === dayOfWeek) {
+            const teacher = teachers.find(t => t.id === duty.teacherId);
+            if (teacher?.unavailableDays?.includes(dayOfWeek)) continue;
             newAssignments.push({
               id: uuidv4(),
               date: dateStr,
@@ -151,18 +159,23 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
     const refWeekStart = startOfWeek(start, { weekStartsOn: 1 });
 
     while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
+      const dateStr = format(currentDate, 'yyyy-MM-dd');
+      if (holidayDates.has(dateStr)) {
+        currentDate = addDays(currentDate, 1);
+        continue;
+      }
       const dayOfWeek = getDay(currentDate);
       const template = dayTemplate.get(dayOfWeek);
 
       if (template && template.length > 0) {
-        const dateStr = format(currentDate, 'yyyy-MM-dd');
         const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
         const weekOffset = Math.round(
           (currentWeekStart.getTime() - refWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)
         );
 
         for (const slot of template) {
-          // Tüm lokasyonlar arasında döner: 0→1→2→3→4→0→1→...
+          const teacher = teachers.find(t => t.id === slot.teacherId);
+          if (teacher?.unavailableDays?.includes(dayOfWeek)) continue;
           const rotatedLocIdx = (slot.locationIdx + weekOffset) % L;
           newAssignments.push({
             id: uuidv4(),
@@ -215,16 +228,26 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
     let currentDate = start;
 
     while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
+      const dateStr = format(currentDate, 'yyyy-MM-dd');
+      if (holidayDates.has(dateStr)) {
+        currentDate = addDays(currentDate, 1);
+        continue;
+      }
       const dayOfWeek = getDay(currentDate);
       const slotsForDay = daySlots.get(dayOfWeek);
 
       if (slotsForDay && slotsForDay.length > 0) {
-        const dateStr = format(currentDate, 'yyyy-MM-dd');
         const assignedToday = new Set<string>();
         const slotsToFill = [...slotsForDay];
+        const availableForDay = eligibleTeachers.filter(t => !t.unavailableDays?.includes(dayOfWeek));
+
+        if (availableForDay.length === 0) {
+          currentDate = addDays(currentDate, 1);
+          continue;
+        }
 
         for (let s = 0; s < slotsToFill.length; s++) {
-          const sorted = [...eligibleTeachers].sort((a, b) => {
+          const sorted = [...availableForDay].sort((a, b) => {
             const aToday = assignedToday.has(a.id) ? 1 : 0;
             const bToday = assignedToday.has(b.id) ? 1 : 0;
             if (aToday !== bToday) return aToday - bToday;
@@ -302,11 +325,12 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
     let currentDate = start;
     while (isBefore(currentDate, end) || isSameDay(currentDate, end)) {
       const dow = getDay(currentDate);
-      if (activeDays.includes(dow)) {
+      const dateStr = format(currentDate, 'yyyy-MM-dd');
+      if (activeDays.includes(dow) && !holidayDates.has(dateStr)) {
         const curWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 }).getTime();
         const weekIdx = Math.round((curWeekStart - refWeekStart) / (7 * 24 * 60 * 60 * 1000));
         if (!weekMap.has(weekIdx)) weekMap.set(weekIdx, new Map());
-        weekMap.get(weekIdx)!.set(dow, format(currentDate, 'yyyy-MM-dd'));
+        weekMap.get(weekIdx)!.set(dow, dateStr);
       }
       currentDate = addDays(currentDate, 1);
     }
@@ -333,7 +357,17 @@ export default function GeneratorTab({ teachers, locations, onGenerate, onSucces
       }
 
       for (const { dateStr, locationId } of weekAssignments) {
-        const teacher = teacherQueue.shift()!;
+        const dow = getDay(parseISO(dateStr));
+        let chosenIdx = -1;
+        for (let i = 0; i < teacherQueue.length; i++) {
+          if (!teacherQueue[i].unavailableDays?.includes(dow)) {
+            chosenIdx = i;
+            break;
+          }
+        }
+        if (chosenIdx === -1) chosenIdx = 0;
+
+        const teacher = teacherQueue.splice(chosenIdx, 1)[0];
         newAssignments.push({
           id: uuidv4(),
           date: dateStr,
