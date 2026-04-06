@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { format, parseISO, getISOWeek } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Calendar, Printer, Send, X, CheckCircle2, BarChart3 } from 'lucide-react';
-import { Teacher, Location, Assignment, SchoolInfo, formatAcademicYear } from '../types';
+import { Calendar, Printer, Send, X, CheckCircle2, BarChart3, Archive, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Teacher, Location, Assignment, SchoolInfo, ScheduleArchive, formatAcademicYear } from '../types';
 
 interface Props {
   assignments: Assignment[];
@@ -11,9 +11,11 @@ interface Props {
   schoolInfo: SchoolInfo;
   isAdmin?: boolean;
   activeYear?: string;
+  scheduleArchives?: ScheduleArchive[];
+  setScheduleArchives?: React.Dispatch<React.SetStateAction<ScheduleArchive[]>>;
 }
 
-export default function ScheduleTab({ assignments, teachers, locations, schoolInfo, isAdmin = false, activeYear }: Props) {
+export default function ScheduleTab({ assignments, teachers, locations, schoolInfo, isAdmin = false, activeYear, scheduleArchives = [], setScheduleArchives }: Props) {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<'idle' | 'sending' | 'success'>('idle');
   const [printMode, setPrintMode] = useState<'schedule' | 'dutyCounts' | null>(null);
@@ -501,6 +503,20 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
         </div>
       )}
 
+      {/* Schedule Archives */}
+      {scheduleArchives.length > 0 && (
+        <ArchiveSection
+          archives={scheduleArchives}
+          teachers={teachers}
+          locations={locations}
+          schoolInfo={schoolInfo}
+          isAdmin={isAdmin}
+          onDelete={isAdmin && setScheduleArchives ? (archiveId) => {
+            setScheduleArchives(prev => prev.filter(a => a.id !== archiveId));
+          } : undefined}
+        />
+      )}
+
       {/* Notification Modal */}
       {showNotificationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm print:hidden">
@@ -633,6 +649,196 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const ArchiveItem: React.FC<{
+  archive: ScheduleArchive;
+  teachers: Teacher[];
+  locations: Location[];
+  isExpanded: boolean;
+  onToggle: () => void;
+  onDelete?: (id: string) => void;
+  confirmDeleteId: string | null;
+  setConfirmDeleteId: React.Dispatch<React.SetStateAction<string | null>>;
+}> = ({
+  archive,
+  teachers,
+  locations,
+  isExpanded,
+  onToggle,
+  onDelete,
+  confirmDeleteId,
+  setConfirmDeleteId,
+}) => {
+  const archiveScheduleData = useMemo(() => {
+    const data: Record<string, Record<string, Teacher[]>> = {};
+    const dates = new Set<string>();
+    archive.assignments.forEach((a) => {
+      dates.add(a.date);
+      if (!data[a.date]) data[a.date] = {};
+      if (!data[a.date][a.locationId]) data[a.date][a.locationId] = [];
+      const t = teachers.find(t2 => t2.id === a.teacherId);
+      if (t) data[a.date][a.locationId].push(t);
+    });
+    return { data, sortedDates: Array.from(dates).sort() };
+  }, [archive.assignments, teachers]);
+
+  const archivedDate = new Date(archive.archivedAt);
+  const archivedStr = format(archivedDate, 'dd.MM.yyyy HH:mm', { locale: tr });
+
+  return (
+    <div>
+      <div
+        className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50/50 transition-colors"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-3">
+          <Archive className="w-4 h-4 text-amber-500 flex-shrink-0" />
+          <div>
+            <span className="font-medium text-slate-800">{archive.label}</span>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs text-slate-500">
+                {archive.assignments.length} nöbet | Arşivlenme: {archivedStr}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {onDelete && (
+            confirmDeleteId === archive.id ? (
+              <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => { onDelete(archive.id); setConfirmDeleteId(null); }}
+                  className="text-xs bg-red-600 text-white px-2.5 py-1 rounded-md font-medium hover:bg-red-700 transition-colors"
+                >
+                  Sil
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  className="text-xs bg-slate-200 text-slate-700 px-2.5 py-1 rounded-md font-medium hover:bg-slate-300 transition-colors"
+                >
+                  İptal
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(archive.id); }}
+                className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                title="Arşivi Sil"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )
+          )}
+          {isExpanded ? (
+            <ChevronUp className="w-5 h-5 text-slate-400" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-slate-400" />
+          )}
+        </div>
+      </div>
+      {isExpanded && (
+        <div className="px-6 pb-4">
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="py-2 px-3 font-semibold text-slate-600 whitespace-nowrap border-r border-slate-200">Tarih / Gün</th>
+                  {locations.map(loc => (
+                    <th key={loc.id} className="py-2 px-3 font-semibold text-slate-600 border-r border-slate-200 last:border-r-0">{loc.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {archiveScheduleData.sortedDates.map(date => {
+                  const parsed = parseISO(date);
+                  return (
+                    <tr key={date} className="border-b border-slate-100 last:border-b-0">
+                      <td className="py-2 px-3 whitespace-nowrap border-r border-slate-200">
+                        <div className="font-medium text-slate-700">{format(parsed, 'dd.MM.yyyy')}</div>
+                        <div className="text-xs text-slate-400">{format(parsed, 'EEEE', { locale: tr })}</div>
+                      </td>
+                      {locations.map(loc => {
+                        const assigned = archiveScheduleData.data[date]?.[loc.id] || [];
+                        return (
+                          <td key={loc.id} className="py-2 px-3 border-r border-slate-200 last:border-r-0">
+                            {assigned.length > 0 ? (
+                              <div className="flex flex-col gap-0.5">
+                                {assigned.map((t, ti) => (
+                                  <span key={ti} className="text-xs font-medium text-slate-700">{t.name}</span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 text-xs">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+function ArchiveSection({
+  archives,
+  teachers,
+  locations,
+  schoolInfo,
+  isAdmin,
+  onDelete,
+}: {
+  archives: ScheduleArchive[];
+  teachers: Teacher[];
+  locations: Location[];
+  schoolInfo: SchoolInfo;
+  isAdmin: boolean;
+  onDelete?: (id: string) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const sortedArchives = useMemo(
+    () => [...archives].sort((a, b) => b.archivedAt.localeCompare(a.archivedAt)),
+    [archives]
+  );
+
+  return (
+    <div className="bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden print:hidden">
+      <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center gap-3">
+        <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+          <Archive className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-slate-800">Arşivlenmiş Nöbet Çizelgeleri</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {sortedArchives.length} arşivlenmiş çizelge
+          </p>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-200">
+        {sortedArchives.map((archive) => (
+          <ArchiveItem
+            key={archive.id}
+            archive={archive}
+            teachers={teachers}
+            locations={locations}
+            isExpanded={expandedId === archive.id}
+            onToggle={() => setExpandedId(expandedId === archive.id ? null : archive.id)}
+            onDelete={onDelete}
+            confirmDeleteId={confirmDeleteId}
+            setConfirmDeleteId={setConfirmDeleteId}
+          />
+        ))}
+      </div>
     </div>
   );
 }

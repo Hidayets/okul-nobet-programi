@@ -245,7 +245,7 @@ export default function AbsenceTrackingTab({ teachers, absences, schoolInfo, act
                               .map((d, di) => {
                                 const reason = d.reason ? ABSENCE_REASONS.find(r => r.id === d.reason) : null;
                                 return (
-                                  <span key={di} className="inline-flex items-center gap-1.5 text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1">
+                                  <span key={di} className="inline-flex items-center gap-1.5 text-xs bg-surface border border-slate-200 rounded-lg px-2.5 py-1">
                                     <span className="font-medium text-slate-700">
                                       {format(parseISO(d.date), 'dd MMM yyyy', { locale: tr })}
                                     </span>

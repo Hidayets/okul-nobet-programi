@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut, GraduationCap, ChevronDown, BarChart3 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo, Holiday, getCurrentAcademicYear, formatAcademicYear } from './types';
+import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo, Holiday, ScheduleArchive, getCurrentAcademicYear, formatAcademicYear } from './types';
 import TeachersTab from './components/TeachersTab';
 import LocationsTab from './components/LocationsTab';
 import GeneratorTab from './components/GeneratorTab';
@@ -40,6 +40,7 @@ export default function App() {
   const [absences, setAbsences] = useApiSync<Absence>(scopedCollection('absences'), []);
   const [substitutions, setSubstitutions] = useApiSync<Substitution>(scopedCollection('substitutions'), []);
   const [holidays, setHolidays] = useApiSync<Holiday>(scopedCollection('holidays'), []);
+  const [scheduleArchives, setScheduleArchives] = useApiSync<ScheduleArchive>(scopedCollection('scheduleArchives'), []);
 
   const [schoolInfo, setSchoolInfo] = useApiDoc<SchoolInfo>('schoolInfo/info', {
     valilik: '',
@@ -48,6 +49,32 @@ export default function App() {
     okulMuduru: '',
     mudurYardimcilari: []
   });
+
+  const handleTeacherIdsMerged = useCallback((idRemap: Record<string, string>) => {
+    if (!idRemap || Object.keys(idRemap).length === 0) return;
+    const mapId = (id: string) => idRemap[id] ?? id;
+    setAssignments((prev) => prev.map((a) => ({ ...a, teacherId: mapId(a.teacherId) })));
+    setAbsences((prev) => prev.map((a) => ({ ...a, teacherId: mapId(a.teacherId) })));
+    setSubstitutions((prev) =>
+      prev.map((s) => ({
+        ...s,
+        absentTeacherId: mapId(s.absentTeacherId),
+        substituteTeacherId: s.substituteTeacherId ? mapId(s.substituteTeacherId) : s.substituteTeacherId,
+      })),
+    );
+    setLocations((prev) =>
+      prev.map((loc) => ({
+        ...loc,
+        duties: loc.duties.map((d) => ({ ...d, teacherId: mapId(d.teacherId) })),
+      })),
+    );
+    setScheduleArchives((prev) =>
+      prev.map((arch) => ({
+        ...arch,
+        assignments: arch.assignments.map((a) => ({ ...a, teacherId: mapId(a.teacherId) })),
+      })),
+    );
+  }, [setAssignments, setAbsences, setSubstitutions, setLocations, setScheduleArchives]);
 
   const availableYears = useMemo(() => {
     const years = new Set(schoolInfo.academicYears || []);
@@ -98,8 +125,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <header className="bg-surface border-b border-slate-200 sticky top-0 z-10 print:hidden">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
+      <header className="bg-surface border-b border-slate-200 sticky top-0 z-30 print:hidden">
         <div className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
@@ -170,6 +197,7 @@ export default function App() {
           <SchedulesTab 
             teachers={teachers} 
             setTeachers={setTeachers}
+            onTeacherIdsMerged={handleTeacherIdsMerged}
             classes={classes}
             setClasses={setClasses}
             schoolInfo={schoolInfo}
@@ -184,9 +212,25 @@ export default function App() {
             locations={locations}
             holidays={holidays}
             onGenerate={(newAssignments) => {
-              const newDates = new Set(newAssignments.map(a => a.date));
-              const kept = assignments.filter(a => !newDates.has(a.date));
-              setAssignments([...kept, ...newAssignments]);
+              if (assignments.length > 0) {
+                const sortedDates = assignments.map(a => a.date).sort();
+                const archiveStart = sortedDates[0];
+                const archiveEnd = sortedDates[sortedDates.length - 1];
+                const formatDate = (d: string) => {
+                  const [y, m, day] = d.split('-');
+                  return `${day}/${m}/${y}`;
+                };
+                const archive: ScheduleArchive = {
+                  id: crypto.randomUUID(),
+                  label: `${formatDate(archiveStart)} - ${formatDate(archiveEnd)} Nöbeti`,
+                  startDate: archiveStart,
+                  endDate: archiveEnd,
+                  assignments: [...assignments],
+                  archivedAt: new Date().toISOString(),
+                };
+                setScheduleArchives(prev => [...prev, archive]);
+              }
+              setAssignments(newAssignments);
             }} 
             onSuccess={() => setActiveTab('schedule')}
             schoolInfo={schoolInfo}
@@ -200,6 +244,8 @@ export default function App() {
             schoolInfo={schoolInfo}
             isAdmin={isAdmin}
             activeYear={activeYear}
+            scheduleArchives={scheduleArchives}
+            setScheduleArchives={setScheduleArchives}
           />
         )}
         {activeTab === 'daily' && (

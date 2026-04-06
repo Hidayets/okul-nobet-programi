@@ -607,7 +607,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
               <p className="text-xs text-slate-500 mb-3">Öğretmenler nöbet günlerinde sabit kalır. Her hafta nöbet yerleri bir sonrakine kayar.</p>
               <div className="space-y-2">
                 {locations.filter(loc => (loc.duties?.length || 0) > 0).map(loc => (
-                  <div key={loc.id} className="bg-white rounded-lg border border-violet-100 p-3">
+                  <div key={loc.id} className="bg-surface rounded-lg border border-violet-100 p-3">
                     <span className="font-medium text-slate-700 text-sm">{loc.name}</span>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {(loc.duties || []).map((duty, i) => {
@@ -634,15 +634,15 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
               </div>
 
               <div className="grid grid-cols-3 gap-3">
-                <div className="bg-white rounded-lg border border-indigo-100 p-3 text-center">
+                <div className="bg-surface rounded-lg border border-indigo-100 p-3 text-center">
                   <div className="text-2xl font-bold text-indigo-700">{teacherCount}</div>
                   <div className="text-xs text-slate-500 mt-1">Nöbet Tutacak Öğretmen</div>
                 </div>
-                <div className="bg-white rounded-lg border border-indigo-100 p-3 text-center">
+                <div className="bg-surface rounded-lg border border-indigo-100 p-3 text-center">
                   <div className="text-2xl font-bold text-indigo-700">{totalWeekly}</div>
                   <div className="text-xs text-slate-500 mt-1">Haftalık Slot</div>
                 </div>
-                <div className="bg-white rounded-lg border border-indigo-100 p-3 text-center">
+                <div className="bg-surface rounded-lg border border-indigo-100 p-3 text-center">
                   <div className="text-2xl font-bold text-indigo-700">~{ratio}</div>
                   <div className="text-xs text-slate-500 mt-1">Nöbet / Kişi / Hafta</div>
                 </div>
@@ -681,7 +681,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
                 {Array.from(weeklyStats.daySlots.entries())
                   .sort(([a], [b]) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b))
                   .map(([day, locs]) => (
-                    <span key={day} className="text-xs bg-white border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full">
+                    <span key={day} className="text-xs bg-surface border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full">
                       {DAY_SHORT[day]}: {locs.length} kişi
                     </span>
                   ))}
@@ -695,7 +695,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
               <h4 className="text-sm font-semibold text-emerald-800 mb-3">Nöbet Atamaları Özeti</h4>
               <div className="space-y-2">
                 {locations.filter(loc => (loc.duties?.length || 0) > 0).map(loc => (
-                  <div key={loc.id} className="bg-white rounded-lg border border-emerald-100 p-3">
+                  <div key={loc.id} className="bg-surface rounded-lg border border-emerald-100 p-3">
                     <span className="font-medium text-slate-700 text-sm">{loc.name}</span>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {(loc.duties || []).map((duty, i) => {

@@ -172,7 +172,7 @@ export default function LocationsTab({ locations, setLocations, teachers }: Prop
                           {DAYS.filter(day => dutiesByDay.has(day.id)).map(day => {
                             const dayDuties = dutiesByDay.get(day.id)!;
                             return (
-                              <div key={day.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                              <div key={day.id} className="bg-surface rounded-lg border border-slate-200 overflow-hidden">
                                 <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
                                   <span className="text-xs font-semibold text-slate-600">{day.label}</span>
                                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -254,7 +254,7 @@ function DutyAdder({
     : false;
 
   return (
-    <div className="border border-dashed border-slate-300 rounded-lg p-4 bg-white">
+    <div className="border border-dashed border-slate-300 rounded-lg p-4 bg-surface">
       <h4 className="text-sm font-medium text-slate-600 mb-3 flex items-center gap-2">
         <UserPlus className="w-4 h-4" />
         Görevli Ekle
@@ -263,7 +263,7 @@ function DutyAdder({
         <select
           value={selectedTeacher}
           onChange={(e) => setSelectedTeacher(e.target.value)}
-          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-surface"
         >
           <option value="">Öğretmen seçin...</option>
           {eligibleTeachers.map(t => (
@@ -274,7 +274,7 @@ function DutyAdder({
         <select
           value={selectedDay || ''}
           onChange={(e) => setSelectedDay(Number(e.target.value))}
-          className="sm:w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+          className="sm:w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-surface"
         >
           <option value="">Gün seçin...</option>
           {DAYS.map(d => (

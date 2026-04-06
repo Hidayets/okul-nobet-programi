@@ -19,7 +19,67 @@ let serverUrl = `http://localhost:${PORT}`;
 
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.logger = null;
+autoUpdater.allowPrerelease = false;
+autoUpdater.logger = console;
+
+autoUpdater.on('checking-for-update', () => {
+  console.log('Güncelleme kontrol ediliyor...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('Güncelleme mevcut:', info.version);
+  if (mainWindow) {
+    mainWindow.webContents.send('update-status', {
+      status: 'available',
+      version: info.version,
+    });
+  }
+});
+
+autoUpdater.on('update-not-available', () => {
+  console.log('Uygulama güncel.');
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  if (mainWindow) {
+    mainWindow.webContents.send('update-status', {
+      status: 'downloading',
+      percent: Math.round(progress.percent),
+    });
+  }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('Güncelleme indirildi:', info.version);
+  if (mainWindow) {
+    mainWindow.webContents.send('update-status', {
+      status: 'downloaded',
+      version: info.version,
+    });
+  }
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Güncelleme Hazır',
+    message: `Yeni sürüm (v${info.version}) indirildi.`,
+    detail: 'Güncellemeyi yüklemek için uygulama yeniden başlatılacak.',
+    buttons: ['Şimdi Yeniden Başlat', 'Sonra'],
+    defaultId: 0,
+  }).then(({ response }) => {
+    if (response === 0) {
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('Güncelleme hatası:', err?.message || err);
+  if (mainWindow) {
+    mainWindow.webContents.send('update-status', {
+      status: 'error',
+      message: err?.message || 'Bilinmeyen hata',
+    });
+  }
+});
 
 // Ayar dosyası: mod ve sunucu IP'si saklanır
 function getSettingsPath() {
@@ -302,7 +362,18 @@ app.whenReady().then(async () => {
   }
 
   if (!isDev) {
-    setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.error('Güncelleme kontrolü başarısız:', err?.message || err);
+      });
+    }, 5000);
+
+    // Her 4 saatte bir güncelleme kontrolü
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.error('Periyodik güncelleme kontrolü başarısız:', err?.message || err);
+      });
+    }, 4 * 60 * 60 * 1000);
   }
 
   app.on('activate', () => {

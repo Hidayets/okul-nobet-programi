@@ -151,6 +151,15 @@ export interface SchoolInfo {
   gmailAppPassword?: string;
 }
 
+export interface ScheduleArchive {
+  id: string;
+  label: string; // "06/04/2026-30/04/2026 Nöbeti"
+  startDate: string;
+  endDate: string;
+  assignments: Assignment[];
+  archivedAt: string; // ISO timestamp
+}
+
 export function getCurrentAcademicYear(): string {
   const now = new Date();
   const month = now.getMonth() + 1;

@@ -24,6 +24,8 @@ const CLASS_NAME_FIELDS = ['sınıf', 'sınıf adı', 'class', 'şube'];
 interface Props {
   teachers: Teacher[];
   setTeachers: React.Dispatch<React.SetStateAction<Teacher[]>>;
+  /** Mükerrer öğretmen birleştirildiğinde silinen id → tutulan id (nöbet vb. kayıtları güncellemek için). */
+  onTeacherIdsMerged?: (idRemap: Record<string, string>) => void;
   classes: ClassInfo[];
   setClasses: React.Dispatch<React.SetStateAction<ClassInfo[]>>;
   schoolInfo: SchoolInfo;
@@ -287,14 +289,246 @@ function teacherNameMatches(teacherName: string, value: string): boolean {
   if (tLower === vLower) return true;
   if (vLower.includes(tLower) || tLower.includes(vLower)) return true;
 
-  const tParts = tLower.split(/\s+/).filter(p => p.length >= 3);
-  const vParts = vLower.split(/\s+/).filter(p => p.length >= 3);
+  const tParts = tLower.split(/\s+/).filter(p => p.length >= 2);
+  const vParts = vLower.split(/\s+/).filter(p => p.length >= 2);
   for (const tp of tParts) {
     for (const vp of vParts) {
       if (tp === vp) return true;
     }
   }
+
+  return fuzzyTeacherMatch(teacherName, value);
+}
+
+/**
+ * Handles abbreviation formats like "A.YILMAZ", "H.ÖZTÜRK", "Ah.Yılmaz"
+ * matching against full names like "Ahmet YILMAZ", "Hasan ÖZTÜRK".
+ * Also handles reversed order (surname first) and initial-only formats.
+ */
+function fuzzyTeacherMatch(fullName: string, abbreviated: string): boolean {
+  const full = turkishLower(fullName.trim());
+  const abbr = turkishLower(abbreviated.trim());
+
+  const fullParts = full.split(/\s+/).filter(Boolean);
+  const abbrClean = abbr.replace(/\./g, '. ').replace(/\s+/g, ' ').trim();
+  const abbrParts = abbrClean.split(/\s+/).filter(Boolean).map(p => p.replace(/\.$/, ''));
+
+  if (fullParts.length < 2 || abbrParts.length < 1) return false;
+
+  const tryMatch = (nameParts: string[], candidateParts: string[]): boolean => {
+    if (candidateParts.length < 1) return false;
+
+    let matchedParts = 0;
+    let hasFullSurnameMatch = false;
+    const usedIndices = new Set<number>();
+
+    for (const cp of candidateParts) {
+      let bestMatchIdx = -1;
+      let bestMatchType: 'full' | 'initial' | 'prefix' = 'full';
+
+      for (let ni = 0; ni < nameParts.length; ni++) {
+        if (usedIndices.has(ni)) continue;
+        const np = nameParts[ni];
+
+        if (cp === np) {
+          bestMatchIdx = ni;
+          bestMatchType = 'full';
+          break;
+        }
+        if (cp.length === 1 && np.startsWith(cp)) {
+          if (bestMatchIdx === -1) {
+            bestMatchIdx = ni;
+            bestMatchType = 'initial';
+          }
+        } else if (cp.length >= 2 && cp.length < np.length && np.startsWith(cp)) {
+          if (bestMatchIdx === -1 || bestMatchType === 'initial') {
+            bestMatchIdx = ni;
+            bestMatchType = 'prefix';
+          }
+        }
+      }
+
+      if (bestMatchIdx >= 0) {
+        usedIndices.add(bestMatchIdx);
+        matchedParts++;
+        if (bestMatchType === 'full' && nameParts[bestMatchIdx].length >= 2) {
+          hasFullSurnameMatch = true;
+        }
+      }
+    }
+
+    return matchedParts === candidateParts.length && hasFullSurnameMatch;
+  };
+
+  if (tryMatch(fullParts, abbrParts)) return true;
+
+  const reversedParts = [...fullParts].reverse();
+  if (tryMatch(reversedParts, abbrParts)) return true;
+
   return false;
+}
+
+/**
+ * Finds best matching teacher from the list for a given name/abbreviation.
+ * Returns the index or -1 if no match found.
+ */
+function findBestTeacherMatch(teachers: Teacher[], excelName: string): number {
+  const exact = teachers.findIndex(
+    t => turkishLower(t.name.trim()) === turkishLower(excelName.trim())
+  );
+  if (exact >= 0) return exact;
+
+  for (let i = 0; i < teachers.length; i++) {
+    if (fuzzyTeacherMatch(teachers[i].name, excelName)) return i;
+    if (fuzzyTeacherMatch(excelName, teachers[i].name)) return i;
+  }
+
+  const exLower = turkishLower(excelName.trim());
+  for (let i = 0; i < teachers.length; i++) {
+    const tLower = turkishLower(teachers[i].name.trim());
+    if (exLower.includes(tLower) || tLower.includes(exLower)) return i;
+    const tParts = tLower.split(/\s+/).filter(p => p.length >= 3);
+    const eParts = exLower.split(/\s+/).filter(p => p.length >= 3);
+    for (const tp of tParts) {
+      for (const ep of eParts) {
+        if (tp === ep) return i;
+      }
+    }
+  }
+
+  return -1;
+}
+
+/** Aynı kişi sayılır (tam ad / kısaltma / içerme); soyadı tek başına eşleşme yeterli değildir. */
+function teachersMatchSamePerson(nameA: string, nameB: string): boolean {
+  const a = nameA.trim();
+  const b = nameB.trim();
+  if (!a || !b) return false;
+  if (turkishLower(a) === turkishLower(b)) return true;
+  if (normalizeForMatch(a) === normalizeForMatch(b)) return true;
+  if (fuzzyTeacherMatch(a, b) || fuzzyTeacherMatch(b, a)) return true;
+  const aL = turkishLower(a);
+  const bL = turkishLower(b);
+  if (aL.includes(bL) || bL.includes(aL)) return true;
+  return false;
+}
+
+function pickCanonicalTeacherName(a: string, b: string): string {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (tb.length > ta.length) return tb;
+  if (ta.length > tb.length) return ta;
+  return ta;
+}
+
+/** İlk kayıttaki dolu hücreler korunur; boşluklar ikinci kayıttan doldurulur (mükerrer birleştirme). */
+function mergeSchedulesPreferFirst(
+  first: Record<number, Record<number, string>> | undefined,
+  second: Record<number, Record<number, string>> | undefined,
+): Record<number, Record<number, string>> {
+  const out: Record<number, Record<number, string>> = {};
+  const days = new Set<number>([
+    ...Object.keys(first || {}).map(Number),
+    ...Object.keys(second || {}).map(Number),
+  ]);
+  for (const d of days) {
+    out[d] = { ...(first?.[d] || {}) };
+    const hSecond = second?.[d] || {};
+    for (const [hStr, cls] of Object.entries(hSecond)) {
+      const h = Number(hStr);
+      const cur = out[d][h];
+      if (cur == null || String(cur).trim() === '') {
+        if (cls != null && String(cls).trim() !== '') {
+          out[d][h] = cls;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function mergeScheduleOverlay(
+  base: Record<number, Record<number, string>> | undefined,
+  row: Record<number, Record<number, string>>,
+): Record<number, Record<number, string>> {
+  const out: Record<number, Record<number, string>> = {};
+  const days = new Set<number>([
+    ...Object.keys(base || {}).map(Number),
+    ...Object.keys(row).map(Number),
+  ]);
+  for (const d of days) {
+    out[d] = { ...(base?.[d] || {}) };
+    const hours = row[d];
+    if (!hours) continue;
+    for (const [hStr, cls] of Object.entries(hours)) {
+      const h = Number(hStr);
+      if (cls != null && String(cls).trim() !== '') {
+        out[d][h] = cls;
+      }
+    }
+  }
+  return out;
+}
+
+function mergeParsedTeacherRows(
+  parsed: { name: string; schedule: Record<number, Record<number, string>> }[],
+): { name: string; schedule: Record<number, Record<number, string>> }[] {
+  const out: { name: string; schedule: Record<number, Record<number, string>> }[] = [];
+  for (const row of parsed) {
+    const name = row.name.trim();
+    if (!name) continue;
+    const j = out.findIndex((o) => teachersMatchSamePerson(o.name, name));
+    if (j >= 0) {
+      out[j] = {
+        name: pickCanonicalTeacherName(out[j].name, name),
+        schedule: mergeScheduleOverlay(out[j].schedule, row.schedule),
+      };
+    } else {
+      out.push({ name, schedule: mergeScheduleOverlay(undefined, row.schedule) });
+    }
+  }
+  return out;
+}
+
+function mergeTeacherRecordsKeepFirstId(a: Teacher, b: Teacher): Teacher {
+  const name = pickCanonicalTeacherName(a.name, b.name);
+  const schedule = mergeSchedulesPreferFirst(a.schedule, b.schedule);
+  const hasSchedule = Object.keys(schedule).length > 0;
+  const ua = a.unavailableDays || [];
+  const ub = b.unavailableDays || [];
+  const unavailableDays =
+    ua.length || ub.length
+      ? [...new Set([...ua, ...ub])].sort((x, y) => x - y)
+      : undefined;
+  return {
+    ...a,
+    name,
+    schedule: hasSchedule ? schedule : undefined,
+    email: (a.email && a.email.trim()) || (b.email && b.email.trim()) || undefined,
+    dutyType:
+      a.dutyType === 'nobetDisi' || b.dutyType === 'nobetDisi'
+        ? 'nobetDisi'
+        : a.dutyType === 'hareketli' || b.dutyType === 'hareketli'
+          ? 'hareketli'
+          : a.dutyType || b.dutyType || 'sabit',
+    unavailableDays,
+  };
+}
+
+/** Listede aynı kişiye denk gelen kayıtları tek öğretmende birleştirir (Öğretmenler sayfasında mükerrer görünmesin). */
+function dedupeTeachersList(list: Teacher[]): { teachers: Teacher[]; idRemap: Record<string, string> } {
+  const idRemap: Record<string, string> = {};
+  const out: Teacher[] = [];
+  for (const t of list) {
+    const j = out.findIndex((o) => teachersMatchSamePerson(o.name, t.name));
+    if (j >= 0) {
+      idRemap[t.id] = out[j].id;
+      out[j] = mergeTeacherRecordsKeepFirstId(out[j], t);
+    } else {
+      out.push({ ...t });
+    }
+  }
+  return { teachers: out, idRemap };
 }
 
 interface ComparisonEntry {
@@ -696,7 +930,14 @@ function ScheduleTable({
 
 /* ─── Main Component ─── */
 
-export default function SchedulesTab({ teachers, setTeachers, classes, setClasses, schoolInfo }: Props) {
+export default function SchedulesTab({
+  teachers,
+  setTeachers,
+  onTeacherIdsMerged,
+  classes,
+  setClasses,
+  schoolInfo,
+}: Props) {
   const settings = schoolInfo.settings ?? DEFAULT_SCHOOL_SETTINGS;
   const lessonTimes = useMemo(() => calculateLessonTimes(settings), [settings]);
   const teacherFileInputRef = useRef<HTMLInputElement>(null);
@@ -766,19 +1007,23 @@ export default function SchedulesTab({ teachers, setTeachers, classes, setClasse
           return;
         }
 
+        const mergedParsed = mergeParsedTeacherRows(parsed);
+
         const updatedTeachers = [...teachers];
         let updatedCount = 0;
         let createdCount = 0;
+        const matchedNames: string[] = [];
 
-        parsed.forEach(({ name, schedule }) => {
-          const existingIndex = updatedTeachers.findIndex(
-            t => turkishLower(t.name.trim()) === turkishLower(name.trim())
-          );
+        mergedParsed.forEach(({ name, schedule }) => {
+          const matchIdx = findBestTeacherMatch(updatedTeachers, name);
 
-          if (existingIndex >= 0) {
-            updatedTeachers[existingIndex] = {
-              ...updatedTeachers[existingIndex],
-              schedule,
+          if (matchIdx >= 0) {
+            if (turkishLower(updatedTeachers[matchIdx].name.trim()) !== turkishLower(name.trim())) {
+              matchedNames.push(`${name} → ${updatedTeachers[matchIdx].name}`);
+            }
+            updatedTeachers[matchIdx] = {
+              ...updatedTeachers[matchIdx],
+              schedule: mergeScheduleOverlay(updatedTeachers[matchIdx].schedule, schedule),
             };
             updatedCount++;
           } else {
@@ -792,10 +1037,14 @@ export default function SchedulesTab({ teachers, setTeachers, classes, setClasse
           }
         });
 
-        setTeachers(updatedTeachers);
+        const { teachers: dedupedTeachers, idRemap } = dedupeTeachersList(updatedTeachers);
+        setTeachers(dedupedTeachers);
+        if (Object.keys(idRemap).length > 0) {
+          onTeacherIdsMerged?.(idRemap);
+        }
         setTeacherStatus('success');
         const detectedDays = new Set<number>();
-        parsed.forEach(({ schedule }) => {
+        mergedParsed.forEach(({ schedule }) => {
           for (const d of Object.keys(schedule)) detectedDays.add(parseInt(d));
         });
         const dayNames = [...detectedDays]
@@ -803,8 +1052,17 @@ export default function SchedulesTab({ teachers, setTeachers, classes, setClasse
           .map(d => DAY_NUM_TO_SHORT[d])
           .join(', ');
         const parts: string[] = [];
+        const excelRowMerged = parsed.length - mergedParsed.length;
+        if (excelRowMerged > 0) {
+          parts.push(`Excel'de ${excelRowMerged} satır aynı öğretmende birleştirildi`);
+        }
+        const listDeduped = Object.keys(idRemap).length;
+        if (listDeduped > 0) {
+          parts.push(`${listDeduped} mükerrer öğretmen kaydı birleştirildi`);
+        }
         if (updatedCount > 0) parts.push(`${updatedCount} öğretmen güncellendi`);
         if (createdCount > 0) parts.push(`${createdCount} yeni öğretmen eklendi`);
+        if (matchedNames.length > 0) parts.push(`Eşleştirilen: ${matchedNames.slice(0, 3).join(', ')}${matchedNames.length > 3 ? ` (+${matchedNames.length - 3})` : ''}`);
         if (dayNames) parts.push(`Günler: ${dayNames}`);
         setSuccessDetail(parts.join(' · '));
         setTimeout(() => setTeacherStatus('idle'), 6000);
