@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut, GraduationCap, ChevronDown, BarChart3 } from 'lucide-react';
+import { Calendar, MapPin, Users, Settings, FileText, ClipboardList, BookOpen, LogOut, GraduationCap, ChevronDown, BarChart3, Shield } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Teacher, Location, Assignment, ScheduleConfig, Absence, Substitution, SchoolInfo, ClassInfo, Holiday, ScheduleArchive, getCurrentAcademicYear, formatAcademicYear } from './types';
 import TeachersTab from './components/TeachersTab';
@@ -10,6 +10,7 @@ import DailyOperationsTab from './components/DailyOperationsTab';
 import SettingsTab from './components/SettingsTab';
 import SchedulesTab from './components/SchedulesTab';
 import AbsenceTrackingTab from './components/AbsenceTrackingTab';
+import SuperAdminPanel from './components/SuperAdminPanel';
 import Login from './components/Login';
 import Register from './components/Register';
 import { useAuth } from './AuthContext';
@@ -101,6 +102,11 @@ export default function App() {
       return <Register onBackToLogin={() => setShowRegister(false)} />;
     }
     return <Login onSwitchToRegister={() => setShowRegister(true)} />;
+  }
+
+  // Süper admin için özel panel
+  if (user.role === 'superadmin') {
+    return <SuperAdminPanel onLogout={signOut} />;
   }
 
   const isAdmin = user.role === 'admin';
@@ -237,10 +243,11 @@ export default function App() {
           />
         )}
         {activeTab === 'schedule' && (
-          <ScheduleTab 
-            assignments={assignments} 
-            teachers={teachers} 
-            locations={locations} 
+          <ScheduleTab
+            assignments={assignments}
+            setAssignments={setAssignments}
+            teachers={teachers}
+            locations={locations}
             schoolInfo={schoolInfo}
             isAdmin={isAdmin}
             activeYear={activeYear}
@@ -252,6 +259,7 @@ export default function App() {
           <DailyOperationsTab
             teachers={teachers}
             assignments={assignments}
+            setAssignments={setAssignments}
             absences={absences}
             setAbsences={setAbsences}
             substitutions={substitutions}

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Trash2, MapPin, UserPlus, X, ChevronDown } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Trash2, MapPin, UserPlus, X, ChevronDown, GripVertical } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Location, LocationDuty, Teacher } from '../types';
 
@@ -20,8 +20,74 @@ interface Props {
 export default function LocationsTab({ locations, setLocations, teachers }: Props) {
   const [newLocationName, setNewLocationName] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const dragOverId = useRef<string | null>(null);
+  
+  // Gün değiştirme modal state'i
+  const [editingDuty, setEditingDuty] = useState<{
+    locationId: string;
+    teacherId: string;
+    currentDay: number;
+  } | null>(null);
 
   const eligibleTeachers = teachers.filter(t => t.dutyType !== 'nobetDisi');
+  
+  const handleChangeDutyDay = (locationId: string, teacherId: string, oldDay: number, newDay: number) => {
+    if (oldDay === newDay) {
+      setEditingDuty(null);
+      return;
+    }
+    setLocations(prev => prev.map(loc => {
+      if (loc.id !== locationId) return loc;
+      // Yeni günde 3 kişi varsa izin verme
+      const sameDayCount = loc.duties.filter(d => d.day === newDay).length;
+      if (sameDayCount >= 3) {
+        alert('Bu günde zaten 3 nöbetçi var!');
+        return loc;
+      }
+      // Aynı öğretmen aynı günde zaten varsa izin verme
+      if (loc.duties.some(d => d.teacherId === teacherId && d.day === newDay)) {
+        alert('Bu öğretmen zaten bu günde nöbetçi!');
+        return loc;
+      }
+      // Eski kaydı güncelle
+      return {
+        ...loc,
+        duties: loc.duties.map(d => 
+          d.teacherId === teacherId && d.day === oldDay 
+            ? { ...d, day: newDay } 
+            : d
+        ),
+      };
+    }));
+    setEditingDuty(null);
+  };
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    dragOverId.current = id;
+  };
+
+  const handleDragEnd = () => {
+    if (draggedId && dragOverId.current && draggedId !== dragOverId.current) {
+      setLocations(prev => {
+        const fromIdx = prev.findIndex(l => l.id === draggedId);
+        const toIdx = prev.findIndex(l => l.id === dragOverId.current);
+        if (fromIdx < 0 || toIdx < 0) return prev;
+        const newList = [...prev];
+        const [moved] = newList.splice(fromIdx, 1);
+        newList.splice(toIdx, 0, moved);
+        return newList;
+      });
+    }
+    setDraggedId(null);
+    dragOverId.current = null;
+  };
 
   const handleAddLocation = (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,6 +180,7 @@ export default function LocationsTab({ locations, setLocations, teachers }: Prop
               const isExpanded = expandedId === location.id;
               const duties = location.duties || [];
               const dutyCount = duties.length;
+              const isDragging = draggedId === location.id;
 
               const dutiesByDay = new Map<number, LocationDuty[]>();
               for (const d of duties) {
@@ -122,12 +189,25 @@ export default function LocationsTab({ locations, setLocations, teachers }: Prop
               }
 
               return (
-                <div key={location.id}>
+                <div
+                  key={location.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, location.id)}
+                  onDragOver={(e) => handleDragOver(e, location.id)}
+                  onDragEnd={handleDragEnd}
+                  className={`${isDragging ? 'opacity-50 bg-indigo-50' : ''}`}
+                >
                   <div
                     className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer"
                     onClick={() => setExpandedId(isExpanded ? null : location.id)}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div
+                        className="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing flex-shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <GripVertical className="w-5 h-5" />
+                      </div>
                       <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600 flex-shrink-0">
                         <MapPin className="w-5 h-5" />
                       </div>
@@ -184,7 +264,11 @@ export default function LocationsTab({ locations, setLocations, teachers }: Prop
                                 <div className="divide-y divide-slate-100">
                                   {dayDuties.map((duty, i) => (
                                     <div key={i} className="flex items-center justify-between px-3 py-2">
-                                      <div className="flex items-center gap-2">
+                                      <div 
+                                        className="flex items-center gap-2 cursor-pointer hover:bg-indigo-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
+                                        onClick={() => setEditingDuty({ locationId: location.id, teacherId: duty.teacherId, currentDay: duty.day })}
+                                        title="Gün değiştirmek için tıklayın"
+                                      >
                                         <div className="bg-indigo-50 w-6 h-6 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xs">
                                           {i + 1}
                                         </div>
@@ -220,6 +304,39 @@ export default function LocationsTab({ locations, setLocations, teachers }: Prop
           </div>
         )}
       </div>
+
+      {/* Gün Değiştirme Modal */}
+      {editingDuty && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingDuty(null)}>
+          <div className="bg-surface rounded-xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Nöbet Gününü Değiştir</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              <span className="font-medium">{getTeacherName(editingDuty.teacherId)}</span> için yeni gün seçin:
+            </p>
+            <div className="grid grid-cols-5 gap-2 mb-6">
+              {DAYS.map(day => (
+                <button
+                  key={day.id}
+                  onClick={() => handleChangeDutyDay(editingDuty.locationId, editingDuty.teacherId, editingDuty.currentDay, day.id)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    day.id === editingDuty.currentDay
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {day.short}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setEditingDuty(null)}
+              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              İptal
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

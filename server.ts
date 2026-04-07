@@ -20,6 +20,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-local-dev';
 // generate-license.cjs dosyasındaki değerle aynı olmalıdır.
 const LICENSE_SECRET = process.env.LICENSE_SECRET || 'okul-nobet-2025-BURAYA-KENDI-GIZLI-ANAHTARINIZI-YAZIN';
 
+// Süper Admin Master Key - Login.tsx ile aynı olmalı
+const SUPER_ADMIN_KEY = '342665';
+
 function generateLicenseKey(kurumKodu: string): string {
   const hmac = crypto.createHmac('sha256', LICENSE_SECRET);
   hmac.update(kurumKodu);
@@ -69,6 +72,17 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS licenses (
+    id TEXT PRIMARY KEY,
+    kurumKodu TEXT UNIQUE NOT NULL,
+    okulAdi TEXT NOT NULL,
+    licenseKey TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    expiresAt TEXT,
+    isActive INTEGER DEFAULT 1,
+    lastLoginAt TEXT
   );
 `);
 
@@ -214,6 +228,9 @@ async function startServer() {
 
       const token = jwt.sign({ id: user.id, kurumKodu: user.kurumKodu, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
       
+      // Lisans tablosunda lastLoginAt güncelle
+      db.prepare('UPDATE licenses SET lastLoginAt = ? WHERE kurumKodu = ?').run(new Date().toISOString(), user.kurumKodu);
+
       res.json({
         token,
         user: {
@@ -225,6 +242,124 @@ async function startServer() {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Giriş yapılırken bir hata oluştu.' });
+    }
+  });
+
+  // Auth: Super Admin Login
+  app.post('/api/auth/superadmin-login', (req, res) => {
+    const { masterKey } = req.body;
+
+    if (masterKey !== SUPER_ADMIN_KEY) {
+      return res.status(401).json({ error: 'Geçersiz süper admin anahtarı.' });
+    }
+
+    const token = jwt.sign({ 
+      id: 'superadmin', 
+      kurumKodu: '__superadmin__', 
+      role: 'superadmin' 
+    }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: {
+        uid: 'superadmin',
+        kurumKodu: '__superadmin__',
+        role: 'superadmin'
+      }
+    });
+  });
+
+  // Licenses: Get all (superadmin only)
+  app.get('/api/licenses', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Yetkisiz erişim.' });
+    }
+
+    try {
+      const licenses = db.prepare('SELECT * FROM licenses ORDER BY createdAt DESC').all();
+      res.json(licenses);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Lisanslar yüklenirken hata oluştu.' });
+    }
+  });
+
+  // Licenses: Create new (superadmin only)
+  app.post('/api/licenses', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Yetkisiz erişim.' });
+    }
+
+    const { kurumKodu, okulAdi, expiresAt } = req.body;
+
+    if (!kurumKodu || !okulAdi) {
+      return res.status(400).json({ error: 'Kurum kodu ve okul adı gerekli.' });
+    }
+
+    const cleanKurumKodu = kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const licenseKey = generateLicenseKey(cleanKurumKodu);
+
+    try {
+      // Zaten var mı kontrol et
+      const existing = db.prepare('SELECT id FROM licenses WHERE kurumKodu = ?').get(cleanKurumKodu);
+      if (existing) {
+        return res.status(400).json({ error: 'Bu kurum kodu için zaten lisans mevcut.' });
+      }
+
+      const id = uuidv4();
+      db.prepare(`
+        INSERT INTO licenses (id, kurumKodu, okulAdi, licenseKey, createdAt, expiresAt, isActive)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `).run(id, cleanKurumKodu, okulAdi.trim(), licenseKey, new Date().toISOString(), expiresAt || null);
+
+      res.json({ 
+        id, 
+        kurumKodu: cleanKurumKodu, 
+        okulAdi: okulAdi.trim(), 
+        licenseKey,
+        createdAt: new Date().toISOString(),
+        expiresAt: expiresAt || null,
+        isActive: 1
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Lisans oluşturulurken hata oluştu.' });
+    }
+  });
+
+  // Licenses: Delete (superadmin only)
+  app.delete('/api/licenses/:id', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Yetkisiz erişim.' });
+    }
+
+    try {
+      db.prepare('DELETE FROM licenses WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Lisans silinirken hata oluştu.' });
+    }
+  });
+
+  // Licenses: Toggle active (superadmin only)
+  app.patch('/api/licenses/:id/toggle', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Yetkisiz erişim.' });
+    }
+
+    try {
+      const license: any = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
+      if (!license) {
+        return res.status(404).json({ error: 'Lisans bulunamadı.' });
+      }
+
+      const newStatus = license.isActive ? 0 : 1;
+      db.prepare('UPDATE licenses SET isActive = ? WHERE id = ?').run(newStatus, req.params.id);
+      res.json({ ...license, isActive: newStatus });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Lisans güncellenirken hata oluştu.' });
     }
   });
 

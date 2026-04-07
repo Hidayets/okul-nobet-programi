@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import { Building2, KeyRound, UserCircle2, Loader2, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Building2, KeyRound, UserCircle2, Loader2, ArrowLeft, CheckCircle2, Shield } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+
+// Süper admin master şifresi (sadece siz bileceksiniz)
+const SUPER_ADMIN_KEY = '342665';
 
 interface Props {
   onSwitchToRegister: () => void;
@@ -13,6 +16,23 @@ export default function Login({ onSwitchToRegister }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Süper admin modu
+  const [showSuperAdmin, setShowSuperAdmin] = useState(false);
+  const [superAdminKey, setSuperAdminKey] = useState('');
+  const [logoClickCount, setLogoClickCount] = useState(0);
+  
+  // Logo'ya 5 kez tıklayınca süper admin modunu aç
+  const handleLogoClick = () => {
+    const newCount = logoClickCount + 1;
+    setLogoClickCount(newCount);
+    if (newCount >= 5) {
+      setShowSuperAdmin(true);
+      setLogoClickCount(0);
+    }
+    // 2 saniye sonra sayacı sıfırla
+    setTimeout(() => setLogoClickCount(0), 2000);
+  };
 
   const [showForgot, setShowForgot] = useState(false);
   const [forgotKurum, setForgotKurum] = useState('');
@@ -20,6 +40,41 @@ export default function Login({ onSwitchToRegister }: Props) {
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
+
+  const handleSuperAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (superAdminKey !== SUPER_ADMIN_KEY) {
+      setError('Geçersiz süper admin anahtarı.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Süper admin için özel token oluştur
+      const res = await fetch('/api/auth/superadmin-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masterKey: superAdminKey })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        localStorage.setItem('token', data.token);
+        setUser(data.user);
+      } else {
+        setError(data.error || 'Giriş yapılırken bir hata oluştu.');
+      }
+    } catch (err: any) {
+      console.error('Super admin login error:', err);
+      setError('Giriş yapılırken bir hata oluştu.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +151,73 @@ export default function Login({ onSwitchToRegister }: Props) {
       setForgotLoading(false);
     }
   };
+
+  // Süper Admin Giriş Ekranı
+  if (showSuperAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="flex justify-center">
+            <div className="bg-purple-600 p-3 rounded-xl shadow-lg">
+              <Shield className="w-10 h-10 text-white" />
+            </div>
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
+            Süper Admin Girişi
+          </h2>
+          <p className="mt-2 text-center text-sm text-slate-400">
+            Uygulama sahibi özel erişimi
+          </p>
+        </div>
+
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-slate-800 py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-700">
+            <form className="space-y-6" onSubmit={handleSuperAdminLogin}>
+              {error && (
+                <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300">Master Anahtar</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <KeyRound className="h-5 w-5 text-slate-500" />
+                  </div>
+                  <input
+                    type="password"
+                    required
+                    value={superAdminKey}
+                    onChange={(e) => setSuperAdminKey(e.target.value)}
+                    className="bg-slate-700 text-white focus:ring-purple-500 focus:border-purple-500 block w-full pl-10 sm:text-sm border-slate-600 rounded-md py-2 border placeholder-slate-400"
+                    placeholder="Süper admin anahtarınız"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-70"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Giriş Yap'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setShowSuperAdmin(false); setError(''); setSuperAdminKey(''); }}
+                className="w-full flex items-center justify-center gap-2 py-2 px-4 text-sm font-medium text-slate-400 hover:text-white"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Normal giriş sayfasına dön
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (showForgot) {
     return (
@@ -200,7 +322,11 @@ export default function Login({ onSwitchToRegister }: Props) {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="bg-indigo-600 p-3 rounded-xl shadow-lg">
+          <div 
+            className="bg-indigo-600 p-3 rounded-xl shadow-lg cursor-pointer select-none"
+            onClick={handleLogoClick}
+            title={logoClickCount > 0 ? `${5 - logoClickCount} tıklama kaldı` : undefined}
+          >
             <Building2 className="w-10 h-10 text-white" />
           </div>
         </div>

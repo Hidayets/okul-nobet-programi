@@ -107,7 +107,7 @@ export default function AbsenceTrackingTab({ teachers, absences, schoolInfo, act
       )}
 
       {/* Print section */}
-      <div className="absence-print-section hidden" style={isPrinting ? { display: 'none' } : undefined}>
+      <div className="absence-print-section" style={{ display: isPrinting ? 'block' : 'none' }}>
         <div style={{ textAlign: 'center', marginBottom: '20px' }}>
           {okulAdi && <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '4px' }}>{okulAdi}</div>}
           <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>ÖĞRETMEN DEVAMSIZLIK TAKİP ÇİZELGESİ</div>

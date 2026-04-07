@@ -2,8 +2,19 @@ export type DutyType = 'sabit' | 'hareketli' | 'nobetDisi';
 
 export interface User {
   uid: string;
-  role: 'admin' | 'teacher';
+  role: 'admin' | 'teacher' | 'superadmin';
   kurumKodu: string;
+}
+
+export interface License {
+  id: string;
+  kurumKodu: string;
+  okulAdi: string;
+  licenseKey: string;
+  createdAt: string;
+  expiresAt?: string; // Opsiyonel: Lisans bitiş tarihi
+  isActive: boolean;
+  lastLoginAt?: string;
 }
 
 export interface Teacher {
@@ -47,6 +58,10 @@ export interface Assignment {
   date: string; // YYYY-MM-DD
   locationId: string;
   teacherId: string;
+  // Takas yapıldığında orijinal öğretmen ID'si saklanır (geri alma için)
+  originalTeacherId?: string;
+  // Takas yapıldığında bağlantılı atama ID'si (karşılıklı takas için)
+  swapPairId?: string;
 }
 
 export interface ScheduleConfig {

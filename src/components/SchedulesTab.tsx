@@ -369,56 +369,26 @@ function fuzzyTeacherMatch(fullName: string, abbreviated: string): boolean {
 }
 
 /**
- * Finds best matching teacher from the list for a given name/abbreviation.
+ * Finds exact matching teacher from the list (case-insensitive).
  * Returns the index or -1 if no match found.
  */
 function findBestTeacherMatch(teachers: Teacher[], excelName: string): number {
-  const exact = teachers.findIndex(
+  return teachers.findIndex(
     t => turkishLower(t.name.trim()) === turkishLower(excelName.trim())
   );
-  if (exact >= 0) return exact;
-
-  for (let i = 0; i < teachers.length; i++) {
-    if (fuzzyTeacherMatch(teachers[i].name, excelName)) return i;
-    if (fuzzyTeacherMatch(excelName, teachers[i].name)) return i;
-  }
-
-  const exLower = turkishLower(excelName.trim());
-  for (let i = 0; i < teachers.length; i++) {
-    const tLower = turkishLower(teachers[i].name.trim());
-    if (exLower.includes(tLower) || tLower.includes(exLower)) return i;
-    const tParts = tLower.split(/\s+/).filter(p => p.length >= 3);
-    const eParts = exLower.split(/\s+/).filter(p => p.length >= 3);
-    for (const tp of tParts) {
-      for (const ep of eParts) {
-        if (tp === ep) return i;
-      }
-    }
-  }
-
-  return -1;
 }
 
-/** Aynı kişi sayılır (tam ad / kısaltma / içerme); soyadı tek başına eşleşme yeterli değildir. */
+/** Sadece birebir isim eşleşmesi (case-insensitive) */
 function teachersMatchSamePerson(nameA: string, nameB: string): boolean {
   const a = nameA.trim();
   const b = nameB.trim();
   if (!a || !b) return false;
-  if (turkishLower(a) === turkishLower(b)) return true;
-  if (normalizeForMatch(a) === normalizeForMatch(b)) return true;
-  if (fuzzyTeacherMatch(a, b) || fuzzyTeacherMatch(b, a)) return true;
-  const aL = turkishLower(a);
-  const bL = turkishLower(b);
-  if (aL.includes(bL) || bL.includes(aL)) return true;
-  return false;
+  return turkishLower(a) === turkishLower(b);
 }
 
-function pickCanonicalTeacherName(a: string, b: string): string {
-  const ta = a.trim();
-  const tb = b.trim();
-  if (tb.length > ta.length) return tb;
-  if (ta.length > tb.length) return ta;
-  return ta;
+/** Her zaman ilk kaydı (Öğretmenler sayfasındakini) tercih et */
+function pickCanonicalTeacherName(existingName: string, _newName: string): string {
+  return existingName.trim();
 }
 
 /** İlk kayıttaki dolu hücreler korunur; boşluklar ikinci kayıttan doldurulur (mükerrer birleştirme). */
@@ -470,6 +440,7 @@ function mergeScheduleOverlay(
   return out;
 }
 
+/** Excel'deki aynı isimleri (birebir eşleşme) birleştir */
 function mergeParsedTeacherRows(
   parsed: { name: string; schedule: Record<number, Record<number, string>> }[],
 ): { name: string; schedule: Record<number, Record<number, string>> }[] {
@@ -477,10 +448,10 @@ function mergeParsedTeacherRows(
   for (const row of parsed) {
     const name = row.name.trim();
     if (!name) continue;
-    const j = out.findIndex((o) => teachersMatchSamePerson(o.name, name));
+    const j = out.findIndex((o) => turkishLower(o.name) === turkishLower(name));
     if (j >= 0) {
       out[j] = {
-        name: pickCanonicalTeacherName(out[j].name, name),
+        name: out[j].name, // İlk kaydı koru
         schedule: mergeScheduleOverlay(out[j].schedule, row.schedule),
       };
     } else {
@@ -515,12 +486,12 @@ function mergeTeacherRecordsKeepFirstId(a: Teacher, b: Teacher): Teacher {
   };
 }
 
-/** Listede aynı kişiye denk gelen kayıtları tek öğretmende birleştirir (Öğretmenler sayfasında mükerrer görünmesin). */
+/** Listede birebir aynı isimli kayıtları birleştirir */
 function dedupeTeachersList(list: Teacher[]): { teachers: Teacher[]; idRemap: Record<string, string> } {
   const idRemap: Record<string, string> = {};
   const out: Teacher[] = [];
   for (const t of list) {
-    const j = out.findIndex((o) => teachersMatchSamePerson(o.name, t.name));
+    const j = out.findIndex((o) => turkishLower(o.name.trim()) === turkishLower(t.name.trim()));
     if (j >= 0) {
       idRemap[t.id] = out[j].id;
       out[j] = mergeTeacherRecordsKeepFirstId(out[j], t);

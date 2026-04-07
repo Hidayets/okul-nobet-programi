@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { format, parseISO, getDay } from 'date-fns';
+import { format, parseISO, getDay, addDays, isSameWeek, isAfter, isBefore, endOfWeek } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { v4 as uuidv4 } from 'uuid';
-import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer, ChevronDown, Lightbulb, ShieldAlert, Users } from 'lucide-react';
+import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer, ChevronDown, Lightbulb, ShieldAlert, Users, ArrowRightLeft } from 'lucide-react';
 import { Teacher, Assignment, Absence, Substitution, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, AbsenceReason, ABSENCE_REASONS } from '../types';
 
 interface Props {
   teachers: Teacher[];
   assignments: Assignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<Assignment[]>>;
   absences: Absence[];
   setAbsences: React.Dispatch<React.SetStateAction<Absence[]>>;
   substitutions: Substitution[];
@@ -26,6 +27,7 @@ interface DistributionSummary {
 export default function DailyOperationsTab({
   teachers,
   assignments,
+  setAssignments,
   absences,
   setAbsences,
   substitutions,
@@ -69,6 +71,32 @@ export default function DailyOperationsTab({
   };
 
   const handleMarkPresent = (teacherId: string) => {
+    // Bugünkü bu öğretmenin orijinal atamasını bul (takas yapılmış mı?)
+    const todaysAssignment = assignments.find(
+      a => a.date === selectedDate && a.originalTeacherId === teacherId
+    );
+    
+    if (todaysAssignment && todaysAssignment.swapPairId) {
+      // Takas yapılmış, her iki atamayı da geri al
+      setAssignments(prev => {
+        return prev.map(a => {
+          // Bu atama veya eşleştirilmiş atama
+          if (a.id === todaysAssignment.id || a.id === todaysAssignment.swapPairId) {
+            if (a.originalTeacherId) {
+              return { 
+                ...a, 
+                teacherId: a.originalTeacherId, 
+                originalTeacherId: undefined, 
+                swapPairId: undefined 
+              };
+            }
+          }
+          return a;
+        });
+      });
+    }
+    
+    // Devamsızlık ve görevlendirmeleri temizle
     setAbsences((prev) => prev.filter((a) => !(a.date === selectedDate && a.teacherId === teacherId)));
     setSubstitutions((prev) => prev.filter((s) => !(s.date === selectedDate && s.absentTeacherId === teacherId)));
     setSummary(null);
@@ -79,31 +107,133 @@ export default function DailyOperationsTab({
     return dutyTeachers.filter(t => absentIdSet.has(t.id));
   }, [dutyTeachers, absentIdSet]);
 
-  // Nöbet değişikliği önerileri: boş dersi en çok olan, nöbet sayısı en az olan
-  // Tüm saatleri boş olanlar (o gün hiç dersi yok) önerilmez
-  const dutyReplacements = useMemo(() => {
+  // Bugünkü takaslar - assignments içinden originalTeacherId olan kayıtları bul
+  const todaySwaps = useMemo(() => {
+    return assignments
+      .filter(a => a.date === selectedDate && a.originalTeacherId)
+      .map(a => ({
+        absentTeacherId: a.originalTeacherId!,
+        substituteTeacherId: a.teacherId,
+        locationId: a.locationId,
+      }));
+  }, [assignments, selectedDate]);
+
+  // Nöbet değişikliği önerileri: sonraki günlerde (aynı hafta içinde) nöbetçi olan öğretmenler
+  const dutySwapCandidates = useMemo(() => {
     if (absentDutyTeachers.length === 0) return [];
-    return teachers
-      .filter(t => {
-        if (absentIdSet.has(t.id)) return false;
-        if (dutyTeachers.some(dt => dt.id === t.id)) return false;
-        if (t.dutyType === 'nobetDisi') return false;
-        return true;
-      })
-      .map(t => {
-        const schedule = t.schedule?.[dayOfWeek] || {};
-        const busyHours = Object.keys(schedule).length;
-        const freeHours = settings.lessonCount - busyHours;
-        const totalDutyCount = assignments.filter(a => a.teacherId === t.id).length;
-        return { teacher: t, freeHours, busyHours, totalDutyCount };
-      })
-      .filter(item => item.freeHours > 0 && item.busyHours > 0)
-      .sort((a, b) => {
-        if (b.freeHours !== a.freeHours) return b.freeHours - a.freeHours;
-        return a.totalDutyCount - b.totalDutyCount;
-      })
-      .slice(0, 5);
-  }, [teachers, absentIdSet, dutyTeachers, absentDutyTeachers, dayOfWeek, settings.lessonCount, assignments]);
+    const today = parseISO(selectedDate);
+    const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+
+    // Sonraki günlerdeki nöbet atamalarını bul
+    const upcomingAssignments = assignments.filter(a => {
+      const d = parseISO(a.date);
+      return isAfter(d, today) && (isBefore(d, weekEnd) || isSameWeek(d, today, { weekStartsOn: 1 }));
+    });
+
+    // Her devamsız nöbetçi için swap adayları
+    const candidates: {
+      absentTeacher: Teacher;
+      swapCandidate: Teacher;
+      swapDate: string;
+      absentLocationId: string;
+      swapLocationId: string;
+    }[] = [];
+
+    absentDutyTeachers.forEach(absentT => {
+      // Zaten takas yapılmış mı? (originalTeacherId set edilmiş mi?)
+      const alreadySwapped = assignments.some(
+        a => a.date === selectedDate && a.originalTeacherId === absentT.id
+      );
+      if (alreadySwapped) return;
+
+      // Bugünkü atamayı bul (orijinal öğretmen ID'si ile)
+      const todaysAssignment = assignments.find(
+        a => a.date === selectedDate && a.teacherId === absentT.id && !a.originalTeacherId
+      );
+      if (!todaysAssignment) return;
+
+      upcomingAssignments.forEach(ua => {
+        const swapTeacher = teachers.find(t => t.id === ua.teacherId);
+        if (!swapTeacher) return;
+        if (absentIdSet.has(swapTeacher.id)) return;
+        if (swapTeacher.dutyType === 'nobetDisi') return;
+
+        // Swap adayı bugün müsait mi kontrol et (dersi yoksa)
+        const swapScheduleToday = swapTeacher.schedule?.[dayOfWeek] || {};
+        const busyHoursToday = Object.keys(swapScheduleToday).length;
+        
+        // Tamamen dersi yoksa değil, en az bir dersi olmalı
+        if (busyHoursToday === 0) return;
+        if (busyHoursToday >= settings.lessonCount) return; // Tüm günü dolu
+
+        candidates.push({
+          absentTeacher: absentT,
+          swapCandidate: swapTeacher,
+          swapDate: ua.date,
+          absentLocationId: todaysAssignment.locationId,
+          swapLocationId: ua.locationId,
+        });
+      });
+    });
+
+    // Tekrar eden öğretmenleri filtrele, en yakın tarihli olanı seç
+    const uniqueByCandidate = new Map<string, typeof candidates[0]>();
+    candidates.forEach(c => {
+      const key = `${c.absentTeacher.id}-${c.swapCandidate.id}`;
+      const existing = uniqueByCandidate.get(key);
+      if (!existing || c.swapDate < existing.swapDate) {
+        uniqueByCandidate.set(key, c);
+      }
+    });
+
+    return Array.from(uniqueByCandidate.values())
+      .sort((a, b) => a.swapDate.localeCompare(b.swapDate))
+      .slice(0, 8);
+  }, [absentDutyTeachers, assignments, selectedDate, teachers, absentIdSet, dayOfWeek, settings.lessonCount]);
+
+  const handleSwapDuty = (
+    absentTeacherId: string,
+    swapTeacherId: string,
+    absentLocationId: string,
+    swapDate: string,
+    swapLocationId: string
+  ) => {
+    // Her iki atamayı bul
+    const todaysAssignment = assignments.find(
+      a => a.date === selectedDate && a.teacherId === absentTeacherId && a.locationId === absentLocationId
+    );
+    const swapAssignment = assignments.find(
+      a => a.date === swapDate && a.teacherId === swapTeacherId && a.locationId === swapLocationId
+    );
+
+    if (!todaysAssignment || !swapAssignment) return;
+
+    // Tam takas: her iki öğretmenin nöbet gün ve yerini değiştir
+    // originalTeacherId ve swapPairId ile takas bilgisini sakla
+    setAssignments(prev => {
+      return prev.map(a => {
+        // Bugün: Devamsız öğretmenin yerine takas edilen öğretmen
+        if (a.id === todaysAssignment.id) {
+          return { 
+            ...a, 
+            teacherId: swapTeacherId,
+            originalTeacherId: absentTeacherId,
+            swapPairId: swapAssignment.id
+          };
+        }
+        // Takas günü: Takas edilen öğretmenin yerine devamsız öğretmen
+        if (a.id === swapAssignment.id) {
+          return { 
+            ...a, 
+            teacherId: absentTeacherId,
+            originalTeacherId: swapTeacherId,
+            swapPairId: todaysAssignment.id
+          };
+        }
+        return a;
+      });
+    });
+  };
 
   // Nöbetçi olmayan ama boş dersi olan öğretmenler
   // Tüm saatleri boş olanlar (o gün hiç dersi yok) önerilmez
@@ -182,6 +312,12 @@ export default function DailyOperationsTab({
 
     lessonsToAssign.sort((a, b) => a.hour - b.hour);
 
+    // Eğer devamsız öğretmenlerin hiçbirinin ders programı yoksa uyar
+    if (lessonsToAssign.length === 0 && dailyAbsences.length > 0) {
+      alert('Devamsız öğretmenlerin ders programı bulunamadı. Lütfen "Ders Programları" sekmesinden öğretmen programlarını yükleyin.');
+      return;
+    }
+
     for (const lesson of lessonsToAssign) {
       const { hour, className, absentTeacher } = lesson;
 
@@ -241,139 +377,126 @@ export default function DailyOperationsTab({
 
   const formattedDate = format(parseISO(selectedDate), 'dd MMMM yyyy EEEE', { locale: tr });
 
-  const [isPrinting, setIsPrinting] = useState(false);
-
   const printableGrid = useMemo(() => {
-    const absentTeacherIds = [...new Set(dailySubstitutions.map(s => s.absentTeacherId))];
+    // Sadece substitute atanmış kayıtları al
+    const subsWithAssignment = dailySubstitutions.filter(s => s.substituteTeacherId);
+    if (subsWithAssignment.length === 0) return [];
+
+    const absentTeacherIds = [...new Set(subsWithAssignment.map(s => s.absentTeacherId))];
     return absentTeacherIds.map(absentId => {
       const teacher = teachers.find(t => t.id === absentId);
-      const absentSchedule = teacher?.schedule?.[dayOfWeek] || {};
-      const subs = dailySubstitutions.filter(s => s.absentTeacherId === absentId);
+      const subs = subsWithAssignment.filter(s => s.absentTeacherId === absentId);
 
       const hours: Record<number, { className: string; substitute: string }> = {};
-      for (let h = 1; h <= settings.lessonCount; h++) {
-        const className = absentSchedule[h] || '';
-        const sub = subs.find(s => s.hour === h);
-        const substituteName = sub?.substituteTeacherId
-          ? teachers.find(t => t.id === sub.substituteTeacherId)?.name || ''
-          : '';
-        if (className) {
-          hours[h] = { className, substitute: substituteName };
-        }
-      }
+      // Substitution kayıtlarından saatleri al (schedule yerine)
+      subs.forEach(sub => {
+        const substituteName = teachers.find(t => t.id === sub.substituteTeacherId)?.name || '';
+        hours[sub.hour] = { className: sub.className, substitute: substituteName };
+      });
 
       return {
         absentName: teacher?.name || '-',
         hours,
       };
-    });
-  }, [dailySubstitutions, teachers, dayOfWeek, settings.lessonCount]);
-
-  const handlePrintSubstitutions = () => {
-    if (printableGrid.length === 0) {
-      alert('Yazdırılacak görevlendirme bulunmuyor.');
-      return;
-    }
-    setIsPrinting(true);
-  };
-
-  useEffect(() => {
-    if (isPrinting) {
-      const timer = setTimeout(() => {
-        if ((window as any).electronAPI?.print) {
-          (window as any).electronAPI.print();
-        } else {
-          window.print();
-        }
-        setIsPrinting(false);
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [isPrinting]);
+    }).filter(row => Object.keys(row.hours).length > 0);
+  }, [dailySubstitutions, teachers]);
 
   const okulAdi = schoolInfo.okulAdi || '';
   const mudur = schoolInfo.okulMuduru || '';
   const yardimcilar = (schoolInfo.mudurYardimcilari || []).map(v => v.name);
 
-  return (
-    <div className="space-y-6 daily-ops-container">
-      {/* Print styles */}
-      {isPrinting && (
-        <style type="text/css">
-          {`
-            @media print {
-              @page { size: landscape; margin: 1cm; }
-              body > *, header, nav, main > *:not(.daily-ops-container) { display: none !important; }
-              .daily-ops-container > *:not(.daily-print-section):not(style) { display: none !important; }
-              .daily-print-section { display: block !important; position: static !important; overflow: visible !important; }
-              .daily-print-section * { color: #000 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-              .daily-print-section table { border-collapse: collapse !important; width: 100% !important; }
-              .daily-print-section th, .daily-print-section td { border: 1.5px solid #000 !important; padding: 6px 8px !important; font-size: 11px !important; }
-              .daily-print-section th { background-color: #e2e8f0 !important; font-weight: 700 !important; text-align: center !important; }
-              .daily-print-section .print-signatures { display: flex !important; }
-            }
-          `}
+  const handlePrintSubstitutions = () => {
+    if (printableGrid.length === 0) {
+      alert('Yazdırılacak görevlendirme bulunmuyor. Önce "Otomatik Dağıt" ile görevlendirme yapın.');
+      return;
+    }
+    
+    // Print için HTML oluştur
+    const printHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Ders Görevlendirme Çizelgesi</title>
+        <style>
+          @page { size: landscape; margin: 1cm; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; }
+          .header { text-align: center; margin-bottom: 20px; }
+          .header div { margin-bottom: 2px; }
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1.5px solid #000; padding: 8px 10px; font-size: 12px; }
+          th { background-color: #e2e8f0; font-weight: 700; text-align: center; }
+          td { text-align: center; }
+          td.name-cell { text-align: left; font-weight: 700; padding-left: 12px; }
+          .row-separator { border-bottom: 3px solid #000 !important; }
+          .signatures { display: flex; justify-content: space-between; margin-top: 60px; padding: 0 20px; }
+          .signature-box { text-align: center; min-width: 140px; }
+          .signature-title { font-size: 10px; margin-bottom: 40px; }
+          .signature-name { font-size: 11px; font-weight: 700; border-top: 1.5px solid #000; padding-top: 4px; }
         </style>
-      )}
-
-      {/* Printable substitution section */}
-      <div className="daily-print-section" style={{ display: isPrinting ? 'block' : 'none' }}>
-        <div style={{ textAlign: 'center', marginBottom: '16px', fontFamily: 'Segoe UI, Arial, sans-serif' }}>
-          {schoolInfo.valilik && <div style={{ fontSize: '11px', fontWeight: 700, marginBottom: '1px' }}>T.C.</div>}
-          {schoolInfo.valilik && <div style={{ fontSize: '11px', fontWeight: 700, marginBottom: '1px' }}>{schoolInfo.valilik.toLocaleUpperCase('tr-TR')} VALİLİĞİ</div>}
-          {schoolInfo.kaymakamlik && <div style={{ fontSize: '11px', fontWeight: 700, marginBottom: '1px' }}>{schoolInfo.kaymakamlik.toLocaleUpperCase('tr-TR')} KAYMAKAMLIĞI</div>}
-          {okulAdi && <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>{okulAdi.toLocaleUpperCase('tr-TR')}</div>}
-          <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>DERS GÖREVLENDİRME ÇİZELGESİ</div>
-          <div style={{ fontSize: '12px', fontWeight: 600 }}>{formattedDate}</div>
+      </head>
+      <body>
+        <div class="header">
+          ${schoolInfo.valilik ? `<div style="font-size: 11px; font-weight: 700;">T.C.</div>` : ''}
+          ${schoolInfo.valilik ? `<div style="font-size: 11px; font-weight: 700;">${schoolInfo.valilik.toLocaleUpperCase('tr-TR')} VALİLİĞİ</div>` : ''}
+          ${schoolInfo.kaymakamlik ? `<div style="font-size: 11px; font-weight: 700;">${schoolInfo.kaymakamlik.toLocaleUpperCase('tr-TR')} KAYMAKAMLIĞI</div>` : ''}
+          ${okulAdi ? `<div style="font-size: 13px; font-weight: 700; margin-bottom: 8px;">${okulAdi.toLocaleUpperCase('tr-TR')}</div>` : ''}
+          <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">DERS GÖREVLENDİRME ÇİZELGESİ</div>
+          <div style="font-size: 12px; font-weight: 600;">${formattedDate}</div>
         </div>
         <table>
           <thead>
             <tr>
-              <th style={{ minWidth: '140px', textAlign: 'left', paddingLeft: '10px' }}>Gelmeyen Öğretmen</th>
-              {Array.from({ length: settings.lessonCount }, (_, i) => i + 1).map(h => (
-                <th key={h}>{h}. Ders</th>
-              ))}
+              <th style="text-align: left; padding-left: 12px; min-width: 140px;">Gelmeyen Öğretmen</th>
+              ${Array.from({ length: settings.lessonCount }, (_, i) => `<th>${i + 1}. Ders</th>`).join('')}
             </tr>
           </thead>
           <tbody>
-            {printableGrid.map((row, ri) => (
-              <React.Fragment key={ri}>
-                <tr>
-                  <td style={{ fontWeight: 700, paddingLeft: '10px' }}>{row.absentName}</td>
-                  {Array.from({ length: settings.lessonCount }, (_, i) => i + 1).map(h => (
-                    <td key={h} style={{ textAlign: 'center', fontWeight: 600 }}>
-                      {row.hours[h]?.className || ''}
-                    </td>
-                  ))}
-                </tr>
-                <tr style={{ borderBottom: ri < printableGrid.length - 1 ? '3px solid #000' : undefined }}>
-                  <td style={{ fontWeight: 700, paddingLeft: '10px' }}>Görevlendirilenler</td>
-                  {Array.from({ length: settings.lessonCount }, (_, i) => i + 1).map(h => (
-                    <td key={h} style={{ textAlign: 'center' }}>
-                      {row.hours[h]?.substitute || ''}
-                    </td>
-                  ))}
-                </tr>
-              </React.Fragment>
-            ))}
+            ${printableGrid.map((row, ri) => `
+              <tr>
+                <td class="name-cell">${row.absentName}</td>
+                ${Array.from({ length: settings.lessonCount }, (_, i) => `<td style="font-weight: 600;">${row.hours[i + 1]?.className || ''}</td>`).join('')}
+              </tr>
+              <tr class="${ri < printableGrid.length - 1 ? 'row-separator' : ''}">
+                <td class="name-cell">Görevlendirilenler</td>
+                ${Array.from({ length: settings.lessonCount }, (_, i) => `<td>${row.hours[i + 1]?.substitute || ''}</td>`).join('')}
+              </tr>
+            `).join('')}
           </tbody>
         </table>
-        <div className="print-signatures" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '60px', padding: '0 20px' }}>
-          {yardimcilar.map((name, i) => (
-            <div key={i} style={{ textAlign: 'center', minWidth: '140px' }}>
-              <div style={{ fontSize: '10px', marginBottom: '40px' }}>Müdür Yardımcısı</div>
-              <div style={{ fontSize: '11px', fontWeight: 700, borderTop: '1.5px solid #000', paddingTop: '4px' }}>{name}</div>
+        <div class="signatures">
+          ${yardimcilar.map(name => `
+            <div class="signature-box">
+              <div class="signature-title">Müdür Yardımcısı</div>
+              <div class="signature-name">${name}</div>
             </div>
-          ))}
-          {mudur && (
-            <div style={{ textAlign: 'center', minWidth: '140px' }}>
-              <div style={{ fontSize: '10px', marginBottom: '40px' }}>Okul Müdürü</div>
-              <div style={{ fontSize: '11px', fontWeight: 700, borderTop: '1.5px solid #000', paddingTop: '4px' }}>{mudur}</div>
+          `).join('')}
+          ${mudur ? `
+            <div class="signature-box">
+              <div class="signature-title">Okul Müdürü</div>
+              <div class="signature-name">${mudur}</div>
             </div>
-          )}
+          ` : ''}
         </div>
-      </div>
+      </body>
+      </html>
+    `;
 
+    // Yeni pencere aç ve yazdır
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (printWindow) {
+      printWindow.document.write(printHtml);
+      printWindow.document.close();
+      printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+      };
+    }
+  };
+
+  return (
+    <div className="space-y-6">
       <div className="bg-surface p-6 rounded-xl shadow-sm border border-slate-200">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
@@ -645,7 +768,7 @@ export default function DailyOperationsTab({
       </div>
 
       {/* Nöbetçi Değişikliği Önerisi */}
-      {absentDutyTeachers.length > 0 && dutyReplacements.length > 0 && (
+      {absentDutyTeachers.length > 0 && dutySwapCandidates.length > 0 && (
         <div className="bg-surface rounded-xl shadow-sm border border-amber-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-amber-200 bg-amber-50/50 flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-amber-600" />
@@ -657,21 +780,39 @@ export default function DailyOperationsTab({
             </div>
           </div>
           <div className="p-4">
-            <p className="text-sm font-medium text-slate-700 mb-3">Önerilen yedek nöbetçiler:</p>
+            <p className="text-sm font-medium text-slate-700 mb-3">Bu hafta sonraki günlerde nöbetçi olan öğretmenlerle takas edebilirsiniz:</p>
             <div className="space-y-2">
-              {dutyReplacements.map((item, i) => (
-                <div key={item.teacher.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+              {dutySwapCandidates.map((item, i) => (
+                <div key={`${item.absentTeacher.id}-${item.swapCandidate.id}`} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50/50">
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-bold text-amber-700 w-6">{i + 1}.</span>
                     <div>
-                      <span className="text-sm font-medium text-slate-800">{item.teacher.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-800">{item.swapCandidate.name}</span>
+                        <ArrowRightLeft className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="text-sm text-slate-500">{item.absentTeacher.name}</span>
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-emerald-600 font-medium">{item.freeHours} boş ders</span>
-                        <span className="text-xs text-slate-400">|</span>
-                        <span className="text-xs text-slate-500">Toplam {item.totalDutyCount} nöbet</span>
+                        <span className="text-xs text-indigo-600 font-medium">
+                          {format(parseISO(item.swapDate), 'dd MMM EEEE', { locale: tr })} nöbetçi
+                        </span>
                       </div>
                     </div>
                   </div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleSwapDuty(
+                        item.absentTeacher.id,
+                        item.swapCandidate.id,
+                        item.absentLocationId,
+                        item.swapDate,
+                        item.swapLocationId
+                      )}
+                      className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Takas Yap
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

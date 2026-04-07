@@ -6,6 +6,7 @@ import { Teacher, Location, Assignment, SchoolInfo, ScheduleArchive, formatAcade
 
 interface Props {
   assignments: Assignment[];
+  setAssignments?: React.Dispatch<React.SetStateAction<Assignment[]>>;
   teachers: Teacher[];
   locations: Location[];
   schoolInfo: SchoolInfo;
@@ -15,10 +16,18 @@ interface Props {
   setScheduleArchives?: React.Dispatch<React.SetStateAction<ScheduleArchive[]>>;
 }
 
-export default function ScheduleTab({ assignments, teachers, locations, schoolInfo, isAdmin = false, activeYear, scheduleArchives = [], setScheduleArchives }: Props) {
+export default function ScheduleTab({ assignments, setAssignments, teachers, locations, schoolInfo, isAdmin = false, activeYear, scheduleArchives = [], setScheduleArchives }: Props) {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<'idle' | 'sending' | 'success'>('idle');
   const [printMode, setPrintMode] = useState<'schedule' | 'dutyCounts' | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const handleCancelSchedule = () => {
+    if (setAssignments) {
+      setAssignments([]);
+    }
+    setShowCancelConfirm(false);
+  };
 
   const scheduleData = useMemo(() => {
     const data: Record<string, Record<string, Teacher[]>> = {};
@@ -256,6 +265,15 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
           </p>
         </div>
         <div className="flex gap-3">
+          {isAdmin && setAssignments && (
+            <button
+              onClick={() => setShowCancelConfirm(true)}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+            >
+              <Trash2 className="w-4 h-4" />
+              İptal Et
+            </button>
+          )}
           {isAdmin && (
             <button
               onClick={() => setShowNotificationModal(true)}
@@ -265,13 +283,6 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
               Bildirim Gönder
             </button>
           )}
-          <button
-            onClick={handlePrintDutyCounts}
-            className="bg-surface border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
-          >
-            <BarChart3 className="w-4 h-4" />
-            Nöbet Sayıları Yazdır
-          </button>
           <button
             onClick={handlePrint}
             className="bg-surface border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
@@ -427,9 +438,8 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
 
       </div>
 
-      {/* Duty Counts Print Section - hidden on screen, visible only in print when printMode is dutyCounts */}
-      {printMode === 'dutyCounts' && (
-      <div className="duty-counts-print-section" style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+      {/* Duty Counts Print Section */}
+      <div className="duty-counts-print-section" style={{ display: printMode === 'dutyCounts' ? 'block' : 'none' }}>
         <div className="text-center font-bold" style={{ marginBottom: '12px' }}>
           <div>T.C.</div>
           {schoolInfo.valilik && <div>{schoolInfo.valilik.toLocaleUpperCase('tr-TR')} VALİLİĞİ</div>}
@@ -463,7 +473,6 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
           <div>Okul Müdürü</div>
         </div>
       </div>
-      )}
 
       {/* Duty Counts Summary on screen */}
       {dutyCounts.length > 0 && (
@@ -515,6 +524,37 @@ export default function ScheduleTab({ assignments, teachers, locations, schoolIn
             setScheduleArchives(prev => prev.filter(a => a.id !== archiveId));
           } : undefined}
         />
+      )}
+
+      {/* Cancel Schedule Confirmation */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm print:hidden">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <h3 className="text-lg font-semibold text-slate-800">Çizelgeyi İptal Et</h3>
+            </div>
+            <div className="p-6">
+              <p className="text-slate-600 mb-6">
+                Mevcut nöbet çizelgesi tamamen silinecek. Bu işlem geri alınamaz.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  onClick={handleCancelSchedule}
+                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Evet, İptal Et
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Notification Modal */}
