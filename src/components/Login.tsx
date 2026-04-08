@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Building2, KeyRound, UserCircle2, Loader2, ArrowLeft, CheckCircle2, Shield } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
-// Süper admin master şifresi (sadece siz bileceksiniz)
+// Özel giriş anahtarı
 const SUPER_ADMIN_KEY = '342665';
 
 interface Props {
@@ -17,12 +17,12 @@ export default function Login({ onSwitchToRegister }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // Süper admin modu
+  // Özel giriş modu
   const [showSuperAdmin, setShowSuperAdmin] = useState(false);
   const [superAdminKey, setSuperAdminKey] = useState('');
   const [logoClickCount, setLogoClickCount] = useState(0);
   
-  // Logo'ya 5 kez tıklayınca süper admin modunu aç
+  // Logo'ya 5 kez tıklayınca özel girişi aç
   const handleLogoClick = () => {
     const newCount = logoClickCount + 1;
     setLogoClickCount(newCount);
@@ -45,7 +45,7 @@ export default function Login({ onSwitchToRegister }: Props) {
     e.preventDefault();
     
     if (superAdminKey !== SUPER_ADMIN_KEY) {
-      setError('Geçersiz süper admin anahtarı.');
+      setError('Geçersiz anahtar.');
       return;
     }
 
@@ -53,7 +53,7 @@ export default function Login({ onSwitchToRegister }: Props) {
     setError('');
 
     try {
-      // Süper admin için özel token oluştur
+      // Özel token oluştur
       const res = await fetch('/api/auth/superadmin-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -69,7 +69,7 @@ export default function Login({ onSwitchToRegister }: Props) {
         setError(data.error || 'Giriş yapılırken bir hata oluştu.');
       }
     } catch (err: any) {
-      console.error('Super admin login error:', err);
+      console.error('Login error:', err);
       setError('Giriş yapılırken bir hata oluştu.');
     } finally {
       setLoading(false);
@@ -152,7 +152,7 @@ export default function Login({ onSwitchToRegister }: Props) {
     }
   };
 
-  // Süper Admin Giriş Ekranı
+  // Özel Giriş Ekranı
   if (showSuperAdmin) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -163,10 +163,10 @@ export default function Login({ onSwitchToRegister }: Props) {
             </div>
           </div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
-            Süper Admin Girişi
+            Yönetici Girişi
           </h2>
           <p className="mt-2 text-center text-sm text-slate-400">
-            Uygulama sahibi özel erişimi
+            Özel erişim
           </p>
         </div>
 
@@ -191,7 +191,7 @@ export default function Login({ onSwitchToRegister }: Props) {
                     value={superAdminKey}
                     onChange={(e) => setSuperAdminKey(e.target.value)}
                     className="bg-slate-700 text-white focus:ring-purple-500 focus:border-purple-500 block w-full pl-10 sm:text-sm border-slate-600 rounded-md py-2 border placeholder-slate-400"
-                    placeholder="Süper admin anahtarınız"
+                    placeholder="Yönetici anahtarı"
                   />
                 </div>
               </div>

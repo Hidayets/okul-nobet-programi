@@ -104,7 +104,7 @@ export default function App() {
     return <Login onSwitchToRegister={() => setShowRegister(true)} />;
   }
 
-  // Süper admin için özel panel
+  // Özel yönetim paneli
   if (user.role === 'superadmin') {
     return <SuperAdminPanel onLogout={signOut} />;
   }

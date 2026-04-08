@@ -156,7 +156,7 @@ export default function SuperAdminPanel({ onLogout }: Props) {
                 <Shield className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-lg font-bold">Süper Admin Paneli</h1>
+                <h1 className="text-lg font-bold">Yönetim Paneli</h1>
                 <p className="text-xs text-slate-400">Lisans Yönetimi</p>
               </div>
             </div>

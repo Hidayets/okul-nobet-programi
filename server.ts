@@ -20,7 +20,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-local-dev';
 // generate-license.cjs dosyasındaki değerle aynı olmalıdır.
 const LICENSE_SECRET = process.env.LICENSE_SECRET || 'okul-nobet-2025-BURAYA-KENDI-GIZLI-ANAHTARINIZI-YAZIN';
 
-// Süper Admin Master Key - Login.tsx ile aynı olmalı
+// Özel giriş anahtarı - Login.tsx ile aynı olmalı
 const SUPER_ADMIN_KEY = '342665';
 
 function generateLicenseKey(kurumKodu: string): string {
@@ -245,12 +245,12 @@ async function startServer() {
     }
   });
 
-  // Auth: Super Admin Login
+  // Auth: Özel Giriş
   app.post('/api/auth/superadmin-login', (req, res) => {
     const { masterKey } = req.body;
 
     if (masterKey !== SUPER_ADMIN_KEY) {
-      return res.status(401).json({ error: 'Geçersiz süper admin anahtarı.' });
+      return res.status(401).json({ error: 'Geçersiz anahtar.' });
     }
 
     const token = jwt.sign({ 
@@ -269,7 +269,7 @@ async function startServer() {
     });
   });
 
-  // Licenses: Get all (superadmin only)
+  // Licenses: Get all
   app.get('/api/licenses', authenticateToken, (req: any, res) => {
     if (req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Yetkisiz erişim.' });
@@ -284,7 +284,7 @@ async function startServer() {
     }
   });
 
-  // Licenses: Create new (superadmin only)
+  // Licenses: Create new
   app.post('/api/licenses', authenticateToken, (req: any, res) => {
     if (req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Yetkisiz erişim.' });
@@ -327,7 +327,7 @@ async function startServer() {
     }
   });
 
-  // Licenses: Delete (superadmin only)
+  // Licenses: Delete
   app.delete('/api/licenses/:id', authenticateToken, (req: any, res) => {
     if (req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Yetkisiz erişim.' });
@@ -342,7 +342,7 @@ async function startServer() {
     }
   });
 
-  // Licenses: Toggle active (superadmin only)
+  // Licenses: Toggle active
   app.patch('/api/licenses/:id/toggle', authenticateToken, (req: any, res) => {
     if (req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Yetkisiz erişim.' });
