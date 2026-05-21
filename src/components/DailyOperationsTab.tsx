@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { format, parseISO, getDay, addDays, isSameWeek, isAfter, isBefore, endOfWeek } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { v4 as uuidv4 } from 'uuid';
-import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer, ChevronDown, Lightbulb, ShieldAlert, Users, ArrowRightLeft } from 'lucide-react';
+import { Calendar as CalendarIcon, UserX, UserCheck, RefreshCw, AlertTriangle, BarChart3, Clock, Printer, ChevronDown, ShieldAlert, Users, ArrowRightLeft, X, Plus } from 'lucide-react';
 import { Teacher, Assignment, Absence, Substitution, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes, AbsenceReason, ABSENCE_REASONS } from '../types';
 
 interface Props {
@@ -63,6 +63,36 @@ export default function DailyOperationsTab({
   }, [dailyAbsences]);
 
   const [reasonPickerFor, setReasonPickerFor] = useState<string | null>(null);
+  const [poolPickerTeacherId, setPoolPickerTeacherId] = useState<string | null>(null);
+
+  const handleManualAssign = (
+    substituteTeacherId: string,
+    absentTeacherId: string,
+    hour: number,
+    className: string,
+  ) => {
+    const existing = substitutions.find(
+      s => s.date === selectedDate && s.absentTeacherId === absentTeacherId && s.hour === hour && s.className === className,
+    );
+    if (existing) {
+      setSubstitutions(prev => prev.map(s =>
+        s.id === existing.id ? { ...s, substituteTeacherId } : s,
+      ));
+    } else {
+      setSubstitutions(prev => [
+        ...prev,
+        {
+          id: uuidv4(),
+          date: selectedDate,
+          hour,
+          className,
+          absentTeacherId,
+          substituteTeacherId,
+        },
+      ]);
+    }
+    setPoolPickerTeacherId(null);
+  };
 
   const handleMarkAbsent = (teacherId: string, reason: AbsenceReason) => {
     setAbsences((prev) => [...prev, { id: uuidv4(), date: selectedDate, teacherId, reason }]);
@@ -820,35 +850,130 @@ export default function DailyOperationsTab({
         </div>
       )}
 
-      {/* Boş Dersi Olan Öğretmenler (nöbetçi olmayan) */}
+      {/* Geçici Nöbetçi Havuzu */}
       {dailyAbsences.length > 0 && nonDutyFreeSuggestions.length > 0 && (
         <div className="bg-surface rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center gap-2">
-            <Lightbulb className="w-5 h-5 text-violet-600" />
+            <Users className="w-5 h-5 text-violet-600" />
             <div>
-              <h3 className="font-semibold text-slate-800">Görevlendirilebilecek Öğretmenler</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Nöbetçi olmadığı halde bugün boş dersi olan öğretmenler</p>
+              <h3 className="font-semibold text-slate-800">Geçici Nöbetçi Havuzu</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isAdmin
+                  ? 'Bir öğretmene tıklayın ve devamsız öğretmenin boş derslerinden birine elle atayın.'
+                  : 'Nöbetçi olmadığı halde bugün boş dersi olan öğretmenler'}
+              </p>
             </div>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {nonDutyFreeSuggestions.slice(0, 12).map(item => (
-                <div key={item.teacher.id} className="flex items-center justify-between p-2.5 rounded-lg border border-violet-100 bg-violet-50/30">
-                  <span className="text-sm font-medium text-slate-700 truncate mr-2">{item.teacher.name}</span>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span className="text-xs font-semibold bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
-                      {item.freeHours.length} boş
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      ({item.freeHours.join(', ')}. ders)
-                    </span>
-                  </div>
-                </div>
-              ))}
+              {nonDutyFreeSuggestions.slice(0, 12).map(item => {
+                const Wrapper: any = isAdmin ? 'button' : 'div';
+                return (
+                  <Wrapper
+                    key={item.teacher.id}
+                    onClick={isAdmin ? () => setPoolPickerTeacherId(item.teacher.id) : undefined}
+                    className={`flex items-center justify-between p-2.5 rounded-lg border border-violet-100 bg-violet-50/30 text-left ${
+                      isAdmin ? 'hover:bg-violet-50 hover:border-violet-300 transition-colors cursor-pointer w-full' : ''
+                    }`}
+                    title={isAdmin ? 'Bu öğretmeni elle atamak için tıklayın' : ''}
+                  >
+                    <span className="text-sm font-medium text-slate-700 truncate mr-2">{item.teacher.name}</span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className="text-xs font-semibold bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
+                        {item.freeHours.length} boş
+                      </span>
+                      <span className="text-[10px] text-slate-400 hidden sm:inline">
+                        ({item.freeHours.join(', ')}. ders)
+                      </span>
+                      {isAdmin && <Plus className="w-3.5 h-3.5 text-violet-500" />}
+                    </div>
+                  </Wrapper>
+                );
+              })}
             </div>
           </div>
         </div>
       )}
+
+      {/* Geçici Nöbetçi Havuzu - Manuel Atama Modal */}
+      {poolPickerTeacherId && (() => {
+        const poolEntry = nonDutyFreeSuggestions.find(s => s.teacher.id === poolPickerTeacherId);
+        if (!poolEntry) return null;
+        const freeHourSet = new Set(poolEntry.freeHours);
+        const candidateLessons: { absent: Teacher; hour: number; className: string; alreadyAssignedTo?: Teacher }[] = [];
+        dailyAbsences.forEach(ab => {
+          const absentTeacher = teachers.find(t => t.id === ab.teacherId);
+          if (!absentTeacher?.schedule?.[dayOfWeek]) return;
+          Object.entries(absentTeacher.schedule[dayOfWeek]).forEach(([hourStr, className]) => {
+            const hour = parseInt(hourStr, 10);
+            if (!freeHourSet.has(hour)) return;
+            const existing = substitutions.find(
+              s => s.date === selectedDate && s.absentTeacherId === absentTeacher.id && s.hour === hour && s.className === className,
+            );
+            const alreadyAssignedTo = existing?.substituteTeacherId
+              ? teachers.find(t => t.id === existing.substituteTeacherId)
+              : undefined;
+            candidateLessons.push({ absent: absentTeacher, hour, className, alreadyAssignedTo });
+          });
+        });
+        candidateLessons.sort((a, b) => a.hour - b.hour);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setPoolPickerTeacherId(null)}>
+            <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-slate-500">Geçici Nöbetçi Havuzu — Manuel Atama</div>
+                  <div className="text-base font-semibold text-slate-800">{poolEntry.teacher.name}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Boş saatleri: {poolEntry.freeHours.join(', ')}. ders
+                  </div>
+                </div>
+                <button onClick={() => setPoolPickerTeacherId(null)} className="text-slate-400 hover:text-slate-700 p-1.5 rounded hover:bg-slate-100">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-4 max-h-[60vh] overflow-y-auto">
+                {candidateLessons.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-6">
+                    Bu öğretmenin boş saatlerinde devamsız öğretmenlerin atanmamış dersi bulunmuyor.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {candidateLessons.map((c, idx) => (
+                      <div
+                        key={`${c.absent.id}-${c.hour}-${idx}`}
+                        className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="text-sm font-semibold text-slate-800">
+                            {c.hour}. ders <span className="text-slate-400 font-normal">— {c.className}</span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            Gelmeyen: <span className="font-medium text-red-600">{c.absent.name}</span>
+                          </div>
+                          {c.alreadyAssignedTo && (
+                            <div className="text-[11px] text-amber-700 mt-0.5">
+                              Şu anda: {c.alreadyAssignedTo.name} (üzerine yazılır)
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleManualAssign(poolEntry.teacher.id, c.absent.id, c.hour, c.className)}
+                          className="bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1 transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Ata
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

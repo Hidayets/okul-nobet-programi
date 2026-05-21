@@ -1,9 +1,15 @@
-import React, { useState } from 'react';
-import { Building2, KeyRound, ArrowLeft, Loader2, ShieldCheck, Users, BadgeCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Building2, KeyRound, ArrowLeft, Loader2, ShieldCheck, Users, BadgeCheck, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface Props {
   onBackToLogin: () => void;
 }
+
+type LicenseCheck =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'ok'; okulAdi?: string | null; expiresAt?: string | null }
+  | { state: 'error'; reason: 'not-found' | 'inactive' | 'expired' | 'network' };
 
 export default function Register({ onBackToLogin }: Props) {
   const [kurumKodu, setKurumKodu] = useState('');
@@ -13,12 +19,42 @@ export default function Register({ onBackToLogin }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [licCheck, setLicCheck] = useState<LicenseCheck>({ state: 'idle' });
 
   const formatLicenseInput = (value: string) => {
     const clean = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 16);
     const parts = clean.match(/.{1,4}/g) || [];
     return parts.join('-');
   };
+
+  // Kurum kodu girildikçe (debounced) lisans kaydını kontrol et
+  useEffect(() => {
+    const cleanKurumKodu = kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (!cleanKurumKodu) {
+      setLicCheck({ state: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setLicCheck({ state: 'checking' });
+      try {
+        const res = await fetch(`/api/licenses/check/${encodeURIComponent(cleanKurumKodu)}`);
+        if (!res.ok) throw new Error('network');
+        const data = await res.json();
+        if (cancelled) return;
+        if (!data.exists) {
+          setLicCheck({ state: 'error', reason: 'not-found' });
+        } else if (!data.ok) {
+          setLicCheck({ state: 'error', reason: data.reason || 'not-found' });
+        } else {
+          setLicCheck({ state: 'ok', okulAdi: data.okulAdi, expiresAt: data.expiresAt });
+        }
+      } catch {
+        if (!cancelled) setLicCheck({ state: 'error', reason: 'network' });
+      }
+    }, 500);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [kurumKodu]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,10 +176,35 @@ export default function Register({ onBackToLogin }: Props) {
                   required
                   value={kurumKodu}
                   onChange={(e) => setKurumKodu(e.target.value)}
-                  className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                  className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 pr-10 sm:text-sm border-slate-300 rounded-md py-2 border"
                   placeholder="Örn: 123456"
                 />
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                  {licCheck.state === 'checking' && (
+                    <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+                  )}
+                  {licCheck.state === 'ok' && (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  )}
+                  {licCheck.state === 'error' && (
+                    <AlertCircle className="w-4 h-4 text-red-500" />
+                  )}
+                </div>
               </div>
+              {licCheck.state === 'ok' && (
+                <p className="mt-1 text-xs text-emerald-700">
+                  ✓ {licCheck.okulAdi || 'Lisans bulundu'}
+                  {licCheck.expiresAt && ` • ${new Date(licCheck.expiresAt).toLocaleDateString('tr-TR')} tarihine kadar geçerli`}
+                </p>
+              )}
+              {licCheck.state === 'error' && (
+                <p className="mt-1 text-xs text-red-600">
+                  {licCheck.reason === 'not-found' && 'Bu kurum kodu için lisans tanımlı değil.'}
+                  {licCheck.reason === 'inactive' && 'Lisans pasif durumda.'}
+                  {licCheck.reason === 'expired' && 'Lisansın süresi dolmuş.'}
+                  {licCheck.reason === 'network' && 'Lisans kontrolü yapılamadı.'}
+                </p>
+              )}
             </div>
 
             <div>

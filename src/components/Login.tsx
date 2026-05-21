@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function Login({ onSwitchToRegister }: Props) {
-  const { setUser } = useAuth();
+  const { setUser, setLicense } = useAuth();
   const [kurumKodu, setKurumKodu] = useState('');
   const [role, setRole] = useState<'admin' | 'teacher'>('teacher');
   const [password, setPassword] = useState('');
@@ -65,6 +65,7 @@ export default function Login({ onSwitchToRegister }: Props) {
       if (res.ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
+        setLicense(null);
       } else {
         setError(data.error || 'Giriş yapılırken bir hata oluştu.');
       }
@@ -107,6 +108,7 @@ export default function Login({ onSwitchToRegister }: Props) {
       if (res.ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
+        setLicense(data.license || null);
       } else {
         setError(data.error || 'Giriş yapılırken bir hata oluştu.');
       }
@@ -452,6 +454,10 @@ export default function Login({ onSwitchToRegister }: Props) {
             </div>
           </div>
         </div>
+
+        <p className="mt-6 text-center text-xs text-slate-400 select-none">
+          © {new Date().getFullYear()} Hidayet SEVDİ
+        </p>
       </div>
     </div>
   );

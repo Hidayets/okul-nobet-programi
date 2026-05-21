@@ -1,6 +1,6 @@
 import express from 'express';
 import path from 'path';
-import { mkdirSync } from 'fs';
+import { mkdirSync, readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
@@ -9,9 +9,51 @@ import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import { config as loadDotenv } from 'dotenv';
 
 // CJS (pkg/esbuild) ve ESM (tsx dev) ortamlarında güvenle çalışır
 const __dirname = process.cwd();
+
+// .env dosyasını hem cwd'den hem de exe'nin bulunduğu klasörden yüklemeyi dene.
+// Bu sayede pkg ile paketlendiğinde de exe'nin yanına bir .env konulabilir.
+(() => {
+  const candidates: string[] = [];
+  candidates.push(path.join(process.cwd(), '.env'));
+  try {
+    const execDir = path.dirname((process as any).execPath || '');
+    if (execDir) candidates.push(path.join(execDir, '.env'));
+  } catch {}
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) {
+        loadDotenv({ path: p, override: false });
+      }
+    } catch {}
+  }
+})();
+
+// Üretimde varsayılan sırlar kullanılıyorsa görünür şekilde uyar.
+if (!process.env.LICENSE_SECRET) {
+  console.warn('[license] LICENSE_SECRET çevresel değişkeni bulunamadı, varsayılan değer kullanılıyor. Üretimde mutlaka .env dosyasında ayarlayın.');
+}
+if (!process.env.JWT_SECRET) {
+  console.warn('[auth] JWT_SECRET çevresel değişkeni bulunamadı, varsayılan değer kullanılıyor. Üretimde mutlaka .env dosyasında ayarlayın.');
+}
+
+// Sürüm bilgisi: package.json'dan oku, başarısızsa fallback
+let APP_VERSION = '0.0.0';
+try {
+  const pkgPath = path.join(__dirname, 'package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+  APP_VERSION = pkg.version || APP_VERSION;
+} catch {
+  // pkg ile paketlendiğinde package.json okunamayabilir
+  try {
+    const pkgPath = path.join(path.dirname((process as any).execPath || ''), 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    APP_VERSION = pkg.version || APP_VERSION;
+  } catch {}
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-local-dev';
 
@@ -33,7 +75,269 @@ function generateLicenseKey(kurumKodu: string): string {
 function validateLicenseKey(kurumKodu: string, key: string): boolean {
   const cleanKey = key.trim().replace(/-/g, '').toUpperCase();
   const expected = generateLicenseKey(kurumKodu).replace(/-/g, '');
-  return cleanKey === expected;
+  // Eşit uzunlukta zaman-sabit karşılaştırma
+  if (cleanKey.length !== expected.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(cleanKey), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+function parseSchoolCodeFromYol(yol?: string): string | null {
+  if (!yol) return null;
+  const parts = String(yol).split('/');
+  const last = parts[parts.length - 1]?.trim();
+  if (!last) return null;
+  const clean = last.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return clean || null;
+}
+
+async function fetchSchoolFromGithubByKurumKodu(kurumKodu: string): Promise<{
+  kurumKodu: string;
+  okulAdi: string;
+  il?: string;
+  ilce?: string;
+  kaynak: string;
+} | null> {
+  try {
+    const q = encodeURIComponent(`${kurumKodu} repo:MehmetHuseyinDelipalta/MEB-Okul-Veritabani path:"Tüm Okullar" extension:json`);
+    const searchRes = await fetch(`https://api.github.com/search/code?q=${q}&per_page=5`, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'okul-nobet-programi',
+      },
+    });
+    if (!searchRes.ok) return null;
+    const searchData: any = await searchRes.json();
+    const items: any[] = Array.isArray(searchData?.items) ? searchData.items : [];
+    if (items.length === 0) return null;
+
+    for (const item of items) {
+      if (!item?.url) continue;
+      const metaRes = await fetch(item.url, {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'User-Agent': 'okul-nobet-programi',
+        },
+      });
+      if (!metaRes.ok) continue;
+      const meta: any = await metaRes.json();
+      const downloadUrl = meta?.download_url;
+      if (!downloadUrl) continue;
+
+      const fileRes = await fetch(downloadUrl, { headers: { 'User-Agent': 'okul-nobet-programi' } });
+      if (!fileRes.ok) continue;
+      const schools: any = await fileRes.json();
+      if (!Array.isArray(schools)) continue;
+
+      const found = schools.find((s) => {
+        const code = parseSchoolCodeFromYol(s?.YOL);
+        return code === kurumKodu;
+      });
+      if (found) {
+        return {
+          kurumKodu,
+          okulAdi: String(found.OKUL_ADI || '').trim(),
+          il: typeof found.IL === 'string' ? found.IL : undefined,
+          ilce: typeof found.ILCE === 'string' ? found.ILCE : undefined,
+          kaynak: 'github:MehmetHuseyinDelipalta/MEB-Okul-Veritabani',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[school-lookup] GitHub sorgusunda hata:', err);
+  }
+  return null;
+}
+
+function buildMebSchoolPayload(start: number, length: number, search = ''): URLSearchParams {
+  const payload: Record<string, string> = {
+    draw: '1',
+    'columns[0][data]': 'OKUL_ADI',
+    'columns[0][name]': '',
+    'columns[0][searchable]': 'true',
+    'columns[0][orderable]': 'true',
+    'columns[0][search][value]': '',
+    'columns[0][search][regex]': 'false',
+    'columns[1][data]': 'OKUL_ADI',
+    'columns[1][name]': '',
+    'columns[1][searchable]': 'true',
+    'columns[1][orderable]': 'true',
+    'columns[1][search][value]': '',
+    'columns[1][search][regex]': 'false',
+    'columns[2][data]': 'OKUL_ADI',
+    'columns[2][name]': '',
+    'columns[2][searchable]': 'true',
+    'columns[2][orderable]': 'true',
+    'columns[2][search][value]': '',
+    'columns[2][search][regex]': 'false',
+    'order[0][column]': '0',
+    'order[0][dir]': 'asc',
+    'order[0][name]': '',
+    start: String(start),
+    length: String(length),
+    'search[value]': search,
+    'search[regex]': 'false',
+    il: '',
+    ilce: '',
+  };
+  return new URLSearchParams(payload);
+}
+
+type MebSchoolRow = { OKUL_ADI?: string; YOL?: string };
+type SchoolLookupResult = { kurumKodu: string; okulAdi: string; il?: string; ilce?: string; kaynak: string };
+
+function mapMebRowToSchool(row: MebSchoolRow, kurumKodu: string, kaynak: string): SchoolLookupResult | null {
+  const code = parseSchoolCodeFromYol(row?.YOL);
+  if (!code || code !== kurumKodu) return null;
+  const raw = String(row?.OKUL_ADI || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(' - ').map((s) => s.trim()).filter(Boolean);
+  const il = parts.length >= 1 ? parts[0] : undefined;
+  const ilce = parts.length >= 2 ? parts[1] : undefined;
+  const okulAdi = parts.length >= 3 ? parts.slice(2).join(' - ') : raw;
+  return { kurumKodu, okulAdi, il, ilce, kaynak };
+}
+
+let mebSchoolIndex: Map<string, SchoolLookupResult> | null = null;
+let mebSchoolIndexUpdatedAt = 0;
+let mebSchoolIndexPromise: Promise<void> | null = null;
+
+async function fetchSchoolFromMebQuick(kurumKodu: string): Promise<SchoolLookupResult | null> {
+  try {
+    const res = await fetch('https://www.meb.gov.tr/baglantilar/okullar/okullar_ajax.php', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'x-requested-with': 'XMLHttpRequest',
+        accept: 'application/json, text/javascript, */*; q=0.01',
+        origin: 'https://www.meb.gov.tr',
+        referer: 'https://www.meb.gov.tr/baglantilar/okullar/index.php',
+        'user-agent': 'okul-nobet-programi',
+      },
+      body: buildMebSchoolPayload(0, 200, kurumKodu).toString(),
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const data: any = JSON.parse(text);
+    const rows: MebSchoolRow[] = Array.isArray(data?.data) ? data.data : [];
+    for (const row of rows) {
+      const mapped = mapMebRowToSchool(row, kurumKodu, 'meb-quick-search');
+      if (mapped) return mapped;
+    }
+  } catch (err) {
+    console.warn('[school-lookup] MEB hızlı arama hatası:', err);
+  }
+  return null;
+}
+
+async function ensureMebSchoolIndex(): Promise<void> {
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  if (mebSchoolIndex && Date.now() - mebSchoolIndexUpdatedAt < maxAgeMs) return;
+  if (mebSchoolIndexPromise) return mebSchoolIndexPromise;
+  mebSchoolIndexPromise = (async () => {
+    const next = new Map<string, SchoolLookupResult>();
+    const pageSize = 10000;
+    let start = 0;
+    let total = 0;
+    for (;;) {
+      const res = await fetch('https://www.meb.gov.tr/baglantilar/okullar/okullar_ajax.php', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'x-requested-with': 'XMLHttpRequest',
+          accept: 'application/json, text/javascript, */*; q=0.01',
+          origin: 'https://www.meb.gov.tr',
+          referer: 'https://www.meb.gov.tr/baglantilar/okullar/index.php',
+          'user-agent': 'okul-nobet-programi',
+        },
+        body: buildMebSchoolPayload(start, pageSize, '').toString(),
+      });
+      if (!res.ok) break;
+      const text = await res.text();
+      const data: any = JSON.parse(text);
+      const rows: MebSchoolRow[] = Array.isArray(data?.data) ? data.data : [];
+      total = Number(data?.recordsTotal || 0);
+      for (const row of rows) {
+        const code = parseSchoolCodeFromYol(row?.YOL);
+        if (!code) continue;
+        const mapped = mapMebRowToSchool(row, code, 'meb-full-index');
+        if (mapped) next.set(code, mapped);
+      }
+      start += rows.length;
+      if (!rows.length || (total > 0 && start >= total)) break;
+    }
+    if (next.size > 0) {
+      mebSchoolIndex = next;
+      mebSchoolIndexUpdatedAt = Date.now();
+    }
+  })().finally(() => {
+    mebSchoolIndexPromise = null;
+  });
+  return mebSchoolIndexPromise;
+}
+
+/** Lisans bitişi: YYYY-MM-DD ise o günün yerel gün sonu (bitiş günü dahil). */
+function licenseEndOfDayMs(expiresAt: string): number | null {
+  const datePart = expiresAt.split('T')[0];
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const d = parseInt(m[3], 10);
+    return new Date(y, mo, d, 23, 59, 59, 999).getTime();
+  }
+  const t = new Date(expiresAt).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+// Lisans tablosundan kayıt durumunu kontrol eder.
+// Dönüş: { ok: boolean, reason?: 'not-found' | 'inactive' | 'expired', license?: any }
+function checkLicenseRecord(kurumKodu: string): {
+  ok: boolean;
+  reason?: 'not-found' | 'inactive' | 'expired';
+  license?: any;
+} {
+  const license: any = db.prepare('SELECT * FROM licenses WHERE kurumKodu = ?').get(kurumKodu);
+  if (!license) return { ok: false, reason: 'not-found' };
+  if (!license.isActive) return { ok: false, reason: 'inactive', license };
+  if (license.expiresAt) {
+    const endMs = licenseEndOfDayMs(license.expiresAt);
+    if (endMs !== null && Date.now() > endMs) {
+      return { ok: false, reason: 'expired', license };
+    }
+  }
+  return { ok: true, license };
+}
+
+// İstemciye gönderilecek özet lisans bilgisi (gizli alanlar hariç)
+function getLicenseSummary(kurumKodu: string): {
+  okulAdi: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  daysRemaining: number | null;
+} | null {
+  const row: any = db.prepare('SELECT okulAdi, expiresAt, isActive FROM licenses WHERE kurumKodu = ?').get(kurumKodu);
+  if (!row) return null;
+  let daysRemaining: number | null = null;
+  if (row.expiresAt) {
+    const endMs = licenseEndOfDayMs(row.expiresAt);
+    if (endMs !== null) {
+      const ms = endMs - Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      // Pozitif tarafta yukarı yuvarla, negatif tarafta aşağı yuvarla.
+      // Aksi halde -0 → 0 olur ve süresi yeni dolmuş lisans hâlâ
+      // "0 gün kaldı" olarak görünür.
+      daysRemaining = ms >= 0 ? Math.ceil(ms / dayMs) : Math.floor(ms / dayMs);
+    }
+  }
+  return {
+    okulAdi: row.okulAdi || null,
+    expiresAt: row.expiresAt || null,
+    isActive: !!row.isActive,
+    daysRemaining,
+  };
 }
 
 // pkg ile paketlendiğinde process.pkg tanımlıdır
@@ -146,6 +450,23 @@ async function startServer() {
     });
   };
 
+  // Middleware: aktif/geçerli lisans gerektir.
+  // - superadmin için her zaman izinli.
+  // - DB'de hiç lisans kaydı olmayan eski kullanıcılar (geriye uyumluluk) izinli.
+  // - inactive / expired kullanıcılar 403 + licenseStatus alanı ile reddedilir.
+  // İstemci `licenseStatus` alanını görünce oturumu kapatıp uyarı gösterir.
+  const requireActiveLicense = (req: any, res: any, next: any) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.user.role === 'superadmin') return next();
+    const lic = checkLicenseRecord(req.user.kurumKodu);
+    if (lic.ok || lic.reason === 'not-found') return next();
+    const msg =
+      lic.reason === 'inactive'
+        ? 'Lisansınız pasif duruma alınmış. Lütfen yöneticiyle iletişime geçin.'
+        : 'Lisansınızın süresi dolmuş. Lütfen yöneticiyle iletişime geçin.';
+    return res.status(403).json({ error: msg, licenseStatus: lic.reason });
+  };
+
   // Auth: Register
   app.post('/api/auth/register', (req, res) => {
     const { kurumKodu, adminPassword, teacherPassword, licenseKey } = req.body;
@@ -159,6 +480,17 @@ async function startServer() {
     if (!validateLicenseKey(cleanKurumKodu, licenseKey)) {
       return res.status(400).json({ error: 'Geçersiz lisans anahtarı. Lütfen size verilen anahtarı doğru girdiğinizden emin olun.' });
     }
+
+    // Lisans anahtarı doğrulandıktan sonra lisans durumunu kontrol et.
+    // not-found ise (okulun kendi lokal DB'sinde ilk kurulum), kaydı otomatik oluşturacağız.
+    const lic = checkLicenseRecord(cleanKurumKodu);
+    if (!lic.ok && lic.reason !== 'not-found') {
+      const msg =
+        lic.reason === 'inactive' ? 'Bu kurum kodu için lisans pasif durumda. Lütfen yöneticiyle iletişime geçin.' :
+        'Bu kurum kodu için lisansın süresi dolmuş. Lütfen yöneticiyle iletişime geçin.';
+      return res.status(403).json({ error: msg });
+    }
+
     const adminEmail = `admin@${cleanKurumKodu}.nobet.app`;
     const teacherEmail = `teacher@${cleanKurumKodu}.nobet.app`;
 
@@ -178,6 +510,21 @@ async function startServer() {
       const teacherId = uuidv4();
 
       db.transaction(() => {
+        // Okulun lokal veritabanında lisans kaydı yoksa, doğrulanan anahtarla ilk kaydı oluştur.
+        if (lic.reason === 'not-found') {
+          db.prepare(`
+            INSERT INTO licenses (id, kurumKodu, okulAdi, licenseKey, createdAt, expiresAt, isActive)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+          `).run(
+            uuidv4(),
+            cleanKurumKodu,
+            `Kurum ${cleanKurumKodu}`,
+            generateLicenseKey(cleanKurumKodu),
+            new Date().toISOString(),
+            null
+          );
+        }
+
         insertUser.run(adminId, cleanKurumKodu, 'admin', adminEmail, adminHash);
         insertUser.run(teacherId, cleanKurumKodu, 'teacher', teacherEmail, teacherHash);
 
@@ -226,8 +573,18 @@ async function startServer() {
         return res.status(401).json({ error: 'Hatalı kurum kodu, kullanıcı adı veya şifre.' });
       }
 
+      // Lisans kontrolü: kayıt sırasında lisans olabilir ama daha sonra pasif edilmiş veya süresi geçmiş olabilir.
+      // Eski kullanıcılar için lisans kaydı yoksa engellemiyoruz (geriye dönük uyumluluk).
+      const lic = checkLicenseRecord(user.kurumKodu);
+      if (!lic.ok && lic.reason !== 'not-found') {
+        const msg =
+          lic.reason === 'inactive' ? 'Lisansınız pasif durumda. Lütfen yöneticiyle iletişime geçin.' :
+          'Lisansınızın süresi dolmuş. Lütfen yöneticiyle iletişime geçin.';
+        return res.status(403).json({ error: msg });
+      }
+
       const token = jwt.sign({ id: user.id, kurumKodu: user.kurumKodu, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-      
+
       // Lisans tablosunda lastLoginAt güncelle
       db.prepare('UPDATE licenses SET lastLoginAt = ? WHERE kurumKodu = ?').run(new Date().toISOString(), user.kurumKodu);
 
@@ -237,7 +594,8 @@ async function startServer() {
           uid: user.id,
           kurumKodu: user.kurumKodu,
           role: user.role
-        }
+        },
+        license: getLicenseSummary(user.kurumKodu),
       });
     } catch (err) {
       console.error(err);
@@ -342,6 +700,47 @@ async function startServer() {
     }
   });
 
+  // Licenses: Bitiş tarihi uzatma / okul adı düzeltme (süper yönetici)
+  app.patch('/api/licenses/:id', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Yetkisiz erişim.' });
+    }
+
+    const { expiresAt, okulAdi } = req.body as { expiresAt?: string | null; okulAdi?: string };
+
+    try {
+      const license: any = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
+      if (!license) {
+        return res.status(404).json({ error: 'Lisans bulunamadı.' });
+      }
+
+      let nextExpires: string | null = license.expiresAt ?? null;
+      if (Object.prototype.hasOwnProperty.call(req.body, 'expiresAt')) {
+        if (expiresAt === null || expiresAt === undefined || String(expiresAt).trim() === '') {
+          nextExpires = null;
+        } else {
+          nextExpires = String(expiresAt).trim();
+        }
+      }
+
+      let nextOkul = license.okulAdi;
+      if (typeof okulAdi === 'string' && okulAdi.trim()) {
+        nextOkul = okulAdi.trim();
+      }
+
+      db.prepare('UPDATE licenses SET expiresAt = ?, okulAdi = ? WHERE id = ?').run(
+        nextExpires,
+        nextOkul,
+        req.params.id,
+      );
+      const updated: any = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
+      res.json(updated);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Lisans güncellenirken hata oluştu.' });
+    }
+  });
+
   // Licenses: Toggle active
   app.patch('/api/licenses/:id/toggle', authenticateToken, (req: any, res) => {
     if (req.user.role !== 'superadmin') {
@@ -394,7 +793,7 @@ async function startServer() {
   });
 
   // Auth: Change Password
-  app.post('/api/auth/change-password', authenticateToken, (req: any, res) => {
+  app.post('/api/auth/change-password', authenticateToken, requireActiveLicense, (req: any, res) => {
     const { targetRole, currentPassword, newPassword } = req.body;
 
     if (req.user.role !== 'admin') {
@@ -435,17 +834,90 @@ async function startServer() {
 
   // Auth: Me
   app.get('/api/auth/me', authenticateToken, (req: any, res) => {
+    const isSuper = req.user.role === 'superadmin';
     res.json({
       user: {
         uid: req.user.id,
         kurumKodu: req.user.kurumKodu,
         role: req.user.role
+      },
+      license: isSuper ? null : getLicenseSummary(req.user.kurumKodu),
+    });
+  });
+
+  // Public: Sürüm bilgisi (server-client uyum kontrolü için)
+  app.get('/api/version', (_req, res) => {
+    res.json({
+      version: APP_VERSION,
+      name: 'okul-nobet-programi',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Lisans: Bir kurum kodu için aktif lisans kontrolü (kayıt formunda canlı geri bildirim için)
+  app.get('/api/licenses/check/:kurumKodu', (req, res) => {
+    const cleanKurumKodu = req.params.kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (!cleanKurumKodu) return res.json({ exists: false });
+    const lic = checkLicenseRecord(cleanKurumKodu);
+    res.json({
+      exists: !!lic.license,
+      ok: lic.ok,
+      reason: lic.reason || null,
+      okulAdi: lic.license?.okulAdi || null,
+      expiresAt: lic.license?.expiresAt || null,
+    });
+  });
+
+  // Kurum kodundan okul bilgisi getir (superadmin lisans üretimi için).
+  app.get('/api/schools/lookup/:kurumKodu', authenticateToken, async (req: any, res) => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Yetkisiz erişim.' });
+    }
+    const kurumKodu = req.params.kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (!kurumKodu) return res.status(400).json({ error: 'Geçersiz kurum kodu.' });
+
+    // Öncelik: daha önce lisanslanan okul adını dön.
+    const existing: any = db.prepare('SELECT kurumKodu, okulAdi FROM licenses WHERE kurumKodu = ?').get(kurumKodu);
+    if (existing?.okulAdi) {
+      return res.json({
+        found: true,
+        kurumKodu,
+        okulAdi: existing.okulAdi,
+        kaynak: 'local-license-db',
+      });
+    }
+
+    const schoolQuick = await fetchSchoolFromMebQuick(kurumKodu);
+    if (schoolQuick?.okulAdi) {
+      return res.json({ found: true, ...schoolQuick });
+    }
+
+    try {
+      await ensureMebSchoolIndex();
+      const indexed = mebSchoolIndex?.get(kurumKodu);
+      if (indexed?.okulAdi) {
+        return res.json({ found: true, ...indexed });
       }
+    } catch (err) {
+      console.warn('[school-lookup] MEB tam indeks hatası:', err);
+    }
+
+    const school = await fetchSchoolFromGithubByKurumKodu(kurumKodu);
+    if (!school || !school.okulAdi) {
+      return res.status(404).json({
+        found: false,
+        error: 'Bu kurum kodu için okul bilgisi bulunamadı.',
+      });
+    }
+
+    return res.json({
+      found: true,
+      ...school,
     });
   });
 
   // CRUD: Get Collection
-  app.get('/api/data/:collection', authenticateToken, (req: any, res) => {
+  app.get('/api/data/:collection', authenticateToken, requireActiveLicense, (req: any, res) => {
     const { collection } = req.params;
     const { kurumKodu } = req.user;
 
@@ -463,7 +935,7 @@ async function startServer() {
   });
 
   // CRUD: Create Document
-  app.post('/api/data/:collection', authenticateToken, (req: any, res) => {
+  app.post('/api/data/:collection', authenticateToken, requireActiveLicense, (req: any, res) => {
     const { collection } = req.params;
     const { kurumKodu } = req.user;
     const data = req.body;
@@ -484,7 +956,7 @@ async function startServer() {
   });
 
   // CRUD: Update Document
-  app.put('/api/data/:collection/:id', authenticateToken, (req: any, res) => {
+  app.put('/api/data/:collection/:id', authenticateToken, requireActiveLicense, (req: any, res) => {
     const { collection, id } = req.params;
     const { kurumKodu } = req.user;
     const data = req.body;
@@ -508,7 +980,7 @@ async function startServer() {
   });
 
   // CRUD: Delete Document
-  app.delete('/api/data/:collection/:id', authenticateToken, (req: any, res) => {
+  app.delete('/api/data/:collection/:id', authenticateToken, requireActiveLicense, (req: any, res) => {
     const { collection, id } = req.params;
     const { kurumKodu } = req.user;
 
@@ -524,7 +996,7 @@ async function startServer() {
   });
 
   // CRUD: Get Single Document
-  app.get('/api/doc/:collection/:id', authenticateToken, (req: any, res) => {
+  app.get('/api/doc/:collection/:id', authenticateToken, requireActiveLicense, (req: any, res) => {
     const { collection, id } = req.params;
     const { kurumKodu } = req.user;
 
@@ -545,7 +1017,7 @@ async function startServer() {
   });
 
   // Email: Send notifications to teachers
-  app.post('/api/send-email', authenticateToken, async (req: any, res) => {
+  app.post('/api/send-email', authenticateToken, requireActiveLicense, async (req: any, res) => {
     const { kurumKodu } = req.user;
 
     if (req.user.role !== 'admin') {

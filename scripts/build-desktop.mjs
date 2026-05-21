@@ -12,10 +12,10 @@
  *  6. electron-builder ile Electron installer oluştur
  */
 
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import {
   cpSync, mkdirSync, rmSync, writeFileSync,
-  existsSync, readFileSync, copyFileSync
+  existsSync, readFileSync, copyFileSync, readdirSync, statSync
 } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -33,6 +33,36 @@ function run(cmd, cwd = ROOT) {
 function clean(...dirs) {
   for (const d of dirs) {
     if (existsSync(d)) rmSync(d, { recursive: true, force: true });
+  }
+}
+
+// Windows'ta fs.cpSync büyük dizinlerde / Türkçe karakterli yollarda
+// STATUS_STACK_BUFFER_OVERRUN (0xC0000409) ile çöküyor. xcopy daha güvenilir.
+function copyDirRobust(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  if (process.platform === 'win32') {
+    const res = spawnSync(
+      'xcopy',
+      [src, dest, '/E', '/I', '/Q', '/Y', '/H', '/R'],
+      { stdio: 'inherit', shell: true }
+    );
+    if (res.status === 0) return;
+    console.warn('xcopy başarısız, manuel kopyalamaya geçiliyor…');
+  }
+  // Fallback: manuel rekürsif kopyalama (cpSync olmadan)
+  const stack = [{ s: src, d: dest }];
+  while (stack.length) {
+    const { s, d } = stack.pop();
+    mkdirSync(d, { recursive: true });
+    for (const entry of readdirSync(s)) {
+      const sp = path.join(s, entry);
+      const dp = path.join(d, entry);
+      if (statSync(sp).isDirectory()) {
+        stack.push({ s: sp, d: dp });
+      } else {
+        copyFileSync(sp, dp);
+      }
+    }
   }
 }
 
@@ -98,8 +128,11 @@ copyFileSync(bindingSrc, path.join(TMP, 'better_sqlite3.node'));
 // ─── 5. dist/ ve .node dosyasını release/ içine önce kopyala ─────────────────
 console.log('\n═══ Adım 5: dist/ ve native binding kopyalanıyor…');
 mkdirSync(RELEASE, { recursive: true });
-cpSync(path.join(ROOT, 'dist'), path.join(RELEASE, 'dist'), { recursive: true });
+const releaseDist = path.join(RELEASE, 'dist');
+if (existsSync(releaseDist)) rmSync(releaseDist, { recursive: true, force: true });
+copyDirRobust(path.join(ROOT, 'dist'), releaseDist);
 copyFileSync(bindingSrc, path.join(RELEASE, 'better_sqlite3.node'));
+console.log('  ✓ dist ve native binding kopyalandı');
 
 // ─── 6. pkg ile exe oluştur ───────────────────────────────────────────────────
 console.log('\n═══ Adım 6: pkg ile Windows yürütülebilir dosyası oluşturuluyor…');

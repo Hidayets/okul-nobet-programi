@@ -1,7 +1,11 @@
 {
   "name": "okul-nobet-programi",
   "private": true,
-  "version": "1.8.2",
+  "version": "1.9.2",
+  "description": "Okul Nöbet Programı",
+  "author": {
+    "name": "Hidayet SEVDİ"
+  },
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -18,6 +22,7 @@
   "build": {
     "appId": "com.nobet.app",
     "productName": "Okul Nöbet Programı",
+    "copyright": "Copyright © 2026 Hidayet SEVDİ",
     "directories": {
       "output": "release"
     },
@@ -51,12 +56,13 @@
       {
         "provider": "github",
         "owner": "Hidayets",
-        "repo": "okul-nobet-programi-indir"
+        "repo": "okul-nobet-programi"
       }
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "artifactName": "OkulNobetProgrami-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -69,7 +75,11 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Okul Nöbet Programı",
       "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "differentialPackage": true
     },
     "mac": {
       "target": "dmg"

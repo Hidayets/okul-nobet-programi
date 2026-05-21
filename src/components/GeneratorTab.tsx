@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { format, addDays, isBefore, isSameDay, getDay, parseISO, startOfWeek } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { Calendar as CalendarIcon, Settings2, AlertCircle, Repeat, MapPin, Users, BarChart3, RefreshCw, ArrowRightLeft } from 'lucide-react';
-import { Teacher, Location, Assignment, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, Holiday } from '../types';
+import { Teacher, Location, Assignment, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, Holiday, canTeacherDutyOnDay } from '../types';
 
 interface Props {
   teachers: Teacher[];
@@ -112,7 +112,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
         for (const duty of (location.duties || [])) {
           if (duty.day === dayOfWeek) {
             const teacher = teachers.find(t => t.id === duty.teacherId);
-            if (teacher?.unavailableDays?.includes(dayOfWeek)) continue;
+            if (!canTeacherDutyOnDay(teacher, dayOfWeek)) continue;
             newAssignments.push({
               id: uuidv4(),
               date: dateStr,
@@ -175,7 +175,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
 
         for (const slot of template) {
           const teacher = teachers.find(t => t.id === slot.teacherId);
-          if (teacher?.unavailableDays?.includes(dayOfWeek)) continue;
+          if (!canTeacherDutyOnDay(teacher, dayOfWeek)) continue;
           const rotatedLocIdx = (slot.locationIdx + weekOffset) % L;
           newAssignments.push({
             id: uuidv4(),
@@ -239,7 +239,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
       if (slotsForDay && slotsForDay.length > 0) {
         const assignedToday = new Set<string>();
         const slotsToFill = [...slotsForDay];
-        const availableForDay = eligibleTeachers.filter(t => !t.unavailableDays?.includes(dayOfWeek));
+        const availableForDay = eligibleTeachers.filter(t => canTeacherDutyOnDay(t, dayOfWeek));
 
         if (availableForDay.length === 0) {
           currentDate = addDays(currentDate, 1);
@@ -360,7 +360,7 @@ export default function GeneratorTab({ teachers, locations, holidays, onGenerate
         const dow = getDay(parseISO(dateStr));
         let chosenIdx = -1;
         for (let i = 0; i < teacherQueue.length; i++) {
-          if (!teacherQueue[i].unavailableDays?.includes(dow)) {
+          if (canTeacherDutyOnDay(teacherQueue[i], dow)) {
             chosenIdx = i;
             break;
           }

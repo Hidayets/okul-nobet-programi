@@ -3,6 +3,7 @@ import { Upload, CheckCircle2, AlertCircle, BookOpen, Users, GraduationCap, Chev
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { Teacher, ClassInfo, SchoolInfo, DEFAULT_SCHOOL_SETTINGS, calculateLessonTimes } from '../types';
+import { unifyTeachers, findTeacherFuzzy } from '../lib/teacherMatching';
 
 const DAY_NUM_TO_SHORT: Record<number, string> = {
   1: 'Pzt', 2: 'Sal', 3: 'Çar', 4: 'Per', 5: 'Cum', 6: 'Cmt', 0: 'Paz'
@@ -369,13 +370,12 @@ function fuzzyTeacherMatch(fullName: string, abbreviated: string): boolean {
 }
 
 /**
- * Finds exact matching teacher from the list (case-insensitive).
- * Returns the index or -1 if no match found.
+ * Excel'den okunan adı mevcut listede arar.
+ * Önce birebir, bulunmazsa kısaltma (fuzzy) eşleşmesi yapılır.
+ * Örn: "A. Adıgüzel" → "Ahmet Adıgüzel" eşleştirilir.
  */
 function findBestTeacherMatch(teachers: Teacher[], excelName: string): number {
-  return teachers.findIndex(
-    t => turkishLower(t.name.trim()) === turkishLower(excelName.trim())
-  );
+  return findTeacherFuzzy(teachers, excelName);
 }
 
 /** Sadece birebir isim eşleşmesi (case-insensitive) */
@@ -471,6 +471,19 @@ function mergeTeacherRecordsKeepFirstId(a: Teacher, b: Teacher): Teacher {
     ua.length || ub.length
       ? [...new Set([...ua, ...ub])].sort((x, y) => x - y)
       : undefined;
+  // availableDays beyaz liste olduğu için kesişim alıyoruz; biri boşsa diğerini koru.
+  const aa = a.availableDays || [];
+  const ab = b.availableDays || [];
+  let availableDays: number[] | undefined;
+  if (aa.length && ab.length) {
+    const set = new Set(aa);
+    availableDays = ab.filter((d) => set.has(d)).sort((x, y) => x - y);
+    if (availableDays.length === 0) availableDays = undefined;
+  } else if (aa.length) {
+    availableDays = [...aa].sort((x, y) => x - y);
+  } else if (ab.length) {
+    availableDays = [...ab].sort((x, y) => x - y);
+  }
   return {
     ...a,
     name,
@@ -483,23 +496,16 @@ function mergeTeacherRecordsKeepFirstId(a: Teacher, b: Teacher): Teacher {
           ? 'hareketli'
           : a.dutyType || b.dutyType || 'sabit',
     unavailableDays,
+    availableDays,
   };
 }
 
-/** Listede birebir aynı isimli kayıtları birleştirir */
+/**
+ * Listede birebir VEYA fuzzy (kısaltma) eşleşen kayıtları birleştirir.
+ * Daha "tam" isim olan kaydın id'si ve adı korunur.
+ */
 function dedupeTeachersList(list: Teacher[]): { teachers: Teacher[]; idRemap: Record<string, string> } {
-  const idRemap: Record<string, string> = {};
-  const out: Teacher[] = [];
-  for (const t of list) {
-    const j = out.findIndex((o) => turkishLower(o.name.trim()) === turkishLower(t.name.trim()));
-    if (j >= 0) {
-      idRemap[t.id] = out[j].id;
-      out[j] = mergeTeacherRecordsKeepFirstId(out[j], t);
-    } else {
-      out.push({ ...t });
-    }
-  }
-  return { teachers: out, idRemap };
+  return unifyTeachers(list);
 }
 
 interface ComparisonEntry {

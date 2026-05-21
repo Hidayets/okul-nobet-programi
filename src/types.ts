@@ -13,8 +13,16 @@ export interface License {
   licenseKey: string;
   createdAt: string;
   expiresAt?: string; // Opsiyonel: Lisans bitiş tarihi
-  isActive: boolean;
+  isActive: boolean | 0 | 1;
   lastLoginAt?: string;
+}
+
+/** Login/me endpoint'i tarafından dönen özet lisans bilgisi */
+export interface LicenseSummary {
+  okulAdi: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  daysRemaining: number | null;
 }
 
 export interface Teacher {
@@ -23,6 +31,9 @@ export interface Teacher {
   email?: string;
   dutyType?: DutyType;
   unavailableDays?: number[]; // Days of week teacher can't do duty (0=Sun, 1=Mon, ..., 5=Fri)
+  // Eğer doluysa öğretmen SADECE bu günlerde nöbet tutabilir.
+  // Boş/undefined ise kısıtlama yok (unavailableDays'in tersi yönde mantık).
+  availableDays?: number[];
   // schedule[dayOfWeek][hour] = className
   // dayOfWeek: 1 (Mon) to 5 (Fri)
   // hour: 1 to 8 (or more)
@@ -62,6 +73,9 @@ export interface Assignment {
   originalTeacherId?: string;
   // Takas yapıldığında bağlantılı atama ID'si (karşılıklı takas için)
   swapPairId?: string;
+  // Öğretmen aynı gün/aynı yerde başka bir nöbeti varsa "çift nöbet" olarak işaretlenebilir.
+  // PDF/print çıktısında ek bir not olarak gösterilir.
+  isDoubleDuty?: boolean;
 }
 
 export interface ScheduleConfig {
@@ -173,6 +187,18 @@ export interface ScheduleArchive {
   endDate: string;
   assignments: Assignment[];
   archivedAt: string; // ISO timestamp
+}
+
+// Bir öğretmenin verilen güne nöbet tutup tutamayacağını döner.
+// Öncelik: availableDays (varsa, yalnız bu günlerde tutar) > unavailableDays (kara liste).
+export function canTeacherDutyOnDay(teacher: Teacher | undefined, dayOfWeek: number): boolean {
+  if (!teacher) return false;
+  if (teacher.dutyType === 'nobetDisi') return false;
+  if (teacher.availableDays && teacher.availableDays.length > 0) {
+    return teacher.availableDays.includes(dayOfWeek);
+  }
+  if (teacher.unavailableDays && teacher.unavailableDays.includes(dayOfWeek)) return false;
+  return true;
 }
 
 export function getCurrentAcademicYear(): string {

@@ -15,8 +15,32 @@
  */
 
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+
+// .env dosyasını cwd'den ya da bu script'in bulunduğu klasörden yükle (varsa).
+try {
+  const dotenv = require('dotenv');
+  const candidates = [
+    path.join(process.cwd(), '.env'),
+    path.join(__dirname, '.env'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      dotenv.config({ path: p, override: false });
+    }
+  }
+} catch {
+  // dotenv paketi bulunamazsa sessizce devam et — fallback değer kullanılır.
+}
 
 const LICENSE_SECRET = process.env.LICENSE_SECRET || 'okul-nobet-2025-BURAYA-KENDI-GIZLI-ANAHTARINIZI-YAZIN';
+
+if (!process.env.LICENSE_SECRET) {
+  console.warn('  UYARI: LICENSE_SECRET ayarlı değil, varsayılan değer kullanılıyor.');
+  console.warn('         server.ts ile aynı .env dosyasını kullandığınızdan emin olun.');
+  console.warn('');
+}
 
 function generateLicenseKey(kurumKodu) {
   const clean = kurumKodu.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();

@@ -1,8 +1,20 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { format, parseISO, getISOWeek } from 'date-fns';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { format, parseISO, getISOWeek, getDay } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Calendar, Printer, Send, X, CheckCircle2, BarChart3, Archive, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { Teacher, Location, Assignment, SchoolInfo, ScheduleArchive, formatAcademicYear } from '../types';
+import { Calendar, Printer, Send, X, CheckCircle2, BarChart3, Archive, Trash2, ChevronDown, ChevronUp, ArrowLeft, ArrowRight, Palette, Layers } from 'lucide-react';
+import { Teacher, Location, Assignment, SchoolInfo, ScheduleArchive, formatAcademicYear, canTeacherDutyOnDay } from '../types';
+
+type ZebraColor = 'none' | 'blue' | 'green' | 'purple' | 'amber';
+
+const ZEBRA_COLORS: { id: ZebraColor; label: string; swatch: string; print: string }[] = [
+  { id: 'none', label: 'Renksiz', swatch: '#ffffff', print: 'transparent' },
+  { id: 'blue', label: 'Mavi', swatch: '#dbeafe', print: '#dbeafe' },
+  { id: 'green', label: 'Yeşil', swatch: '#dcfce7', print: '#dcfce7' },
+  { id: 'purple', label: 'Mor', swatch: '#ede9fe', print: '#ede9fe' },
+  { id: 'amber', label: 'Sarı', swatch: '#fef3c7', print: '#fef3c7' },
+];
+
+const ZEBRA_STORAGE_KEY = 'pdfZebraColor';
 
 interface Props {
   assignments: Assignment[];
@@ -21,6 +33,29 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
   const [notificationStatus, setNotificationStatus] = useState<'idle' | 'sending' | 'success'>('idle');
   const [printMode, setPrintMode] = useState<'schedule' | 'dutyCounts' | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [zebraColor, setZebraColor] = useState<ZebraColor>(() => {
+    const saved = (typeof localStorage !== 'undefined' && localStorage.getItem(ZEBRA_STORAGE_KEY)) as ZebraColor | null;
+    return saved && ZEBRA_COLORS.some(z => z.id === saved) ? saved : 'blue';
+  });
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [popover, setPopover] = useState<{ assignmentId: string; teacherId: string; date: string; locationId: string } | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(ZEBRA_STORAGE_KEY, zebraColor);
+  }, [zebraColor]);
+
+  useEffect(() => {
+    if (!popover && !colorPickerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setPopover(null);
+        setColorPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [popover, colorPickerOpen]);
 
   const handleCancelSchedule = () => {
     if (setAssignments) {
@@ -29,8 +64,70 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
     setShowCancelConfirm(false);
   };
 
+  const toggleDoubleDuty = (assignmentId: string) => {
+    if (!setAssignments) return;
+    setAssignments(prev => prev.map(a => a.id === assignmentId ? { ...a, isDoubleDuty: !a.isDoubleDuty } : a));
+  };
+
+  const removeAssignment = (assignmentId: string) => {
+    if (!setAssignments) return;
+    setAssignments(prev => prev.filter(a => a.id !== assignmentId));
+    setPopover(null);
+  };
+
+  const replaceAssignmentTeacher = (assignmentId: string, newTeacherId: string) => {
+    if (!setAssignments) return;
+    setAssignments(prev => prev.map(a => a.id === assignmentId ? { ...a, teacherId: newTeacherId } : a));
+    setPopover(null);
+  };
+
+  const shiftTeachersByOne = (direction: 'forward' | 'backward') => {
+    if (!setAssignments) return;
+    const dates = Array.from(new Set(assignments.map(a => a.date))).sort();
+    const next = assignments.map(a => ({ ...a }));
+    for (const date of dates) {
+      const dayAssignments = next.filter(a => a.date === date);
+      const grouped: Record<string, Assignment[]> = {};
+      for (const a of dayAssignments) {
+        if (!grouped[a.locationId]) grouped[a.locationId] = [];
+        grouped[a.locationId].push(a);
+      }
+      const locIds = locations.map(l => l.id).filter(id => grouped[id]?.length);
+      if (locIds.length < 2) continue;
+      const teacherLists = locIds.map(id => grouped[id].map(a => a.teacherId));
+      const rotated = direction === 'forward'
+        ? [teacherLists[teacherLists.length - 1], ...teacherLists.slice(0, -1)]
+        : [...teacherLists.slice(1), teacherLists[0]];
+      locIds.forEach((id, idx) => {
+        const newIds = rotated[idx];
+        grouped[id].forEach((a, i) => { a.teacherId = newIds[i] ?? a.teacherId; });
+      });
+    }
+    setAssignments(next);
+  };
+
+  const shiftDaysByOne = (direction: 'forward' | 'backward') => {
+    if (!setAssignments) return;
+    const dates = Array.from(new Set(assignments.map(a => a.date))).sort();
+    if (dates.length < 2) return;
+    const rotatedDates = direction === 'forward'
+      ? [dates[dates.length - 1], ...dates.slice(0, -1)]
+      : [...dates.slice(1), dates[0]];
+    const dateMap: Record<string, string> = {};
+    dates.forEach((d, i) => { dateMap[d] = rotatedDates[i]; });
+    setAssignments(prev => prev.map(a => ({ ...a, date: dateMap[a.date] ?? a.date })));
+  };
+
+  const teacherDailyLessonCount = (teacherId: string, dayOfWeek: number): number => {
+    const t = teachers.find(x => x.id === teacherId);
+    if (!t?.schedule) return 0;
+    const day = t.schedule[dayOfWeek];
+    if (!day) return 0;
+    return Object.values(day).filter(v => v && String(v).trim()).length;
+  };
+
   const scheduleData = useMemo(() => {
-    const data: Record<string, Record<string, Teacher[]>> = {};
+    const data: Record<string, Record<string, { teacher: Teacher; assignment: Assignment }[]>> = {};
     const dates = new Set<string>();
 
     assignments.forEach((assignment) => {
@@ -44,13 +141,51 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
 
       const teacher = teachers.find(t => t.id === assignment.teacherId);
       if (teacher) {
-        data[assignment.date][assignment.locationId].push(teacher);
+        data[assignment.date][assignment.locationId].push({ teacher, assignment });
       }
     });
 
     const sortedDates = Array.from(dates).sort();
     return { data, sortedDates };
-  }, [assignments, teachers, locations]);
+  }, [assignments, teachers]);
+
+  const hasDoubleDuty = useMemo(() => assignments.some(a => a.isDoubleDuty), [assignments]);
+
+  const popoverInfo = useMemo(() => {
+    if (!popover) return null;
+    const teacher = teachers.find(t => t.id === popover.teacherId);
+    if (!teacher) return null;
+    const date = parseISO(popover.date);
+    const dayOfWeek = getDay(date);
+    const lessonCount = teacherDailyLessonCount(teacher.id, dayOfWeek);
+    const targetWeek = getISOWeek(date);
+    const sameWeek = assignments.filter(a => {
+      if (a.teacherId !== teacher.id || a.id === popover.assignmentId) return false;
+      return getISOWeek(parseISO(a.date)) === targetWeek;
+    });
+    const weekDutyCount = sameWeek.length + 1;
+    const totalDuties = assignments.filter(a => a.teacherId === teacher.id).length;
+    const sameDay = assignments.filter(a =>
+      a.teacherId === teacher.id && a.date === popover.date && a.id !== popover.assignmentId,
+    );
+    const dayConflict = !canTeacherDutyOnDay(teacher, dayOfWeek);
+    const candidateTeachers = teachers
+      .filter(t => t.id !== teacher.id && t.dutyType !== 'nobetDisi' && canTeacherDutyOnDay(t, dayOfWeek))
+      .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    const currentAssignment = assignments.find(a => a.id === popover.assignmentId);
+    return {
+      teacher,
+      lessonCount,
+      weekDutyCount,
+      sameWeek,
+      totalDuties,
+      sameDay,
+      dayConflict,
+      candidateTeachers,
+      currentAssignment,
+      dayOfWeek,
+    };
+  }, [popover, teachers, assignments]);
 
   const uniqueTeachersInSchedule = useMemo(() => {
     const teacherIds = new Set(assignments.map(a => a.teacherId));
@@ -242,6 +377,7 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
           .print-footer-block { font-size: 7pt !important; margin-top: 6px !important; }
           .print-footer-block li { margin-bottom: 0 !important; }
           .print-week-sep td { padding: 1px 4px !important; font-size: 7pt !important; }
+          .print-zebra-row td { background-color: ${ZEBRA_COLORS.find(z => z.id === zebraColor)?.print || 'transparent'} !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           ${printMode === 'schedule' ? `
             @page { size: landscape; }
             .duty-counts-print-section { display: none !important; }
@@ -264,7 +400,76 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
             {scheduleData.sortedDates.length} günlük program oluşturuldu.
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2">
+          {isAdmin && setAssignments && (
+            <div className="inline-flex items-center bg-slate-50 border border-slate-200 rounded-lg overflow-hidden" title="Tüm öğretmenleri yer/gün rotasyonuyla kaydır">
+              <button
+                onClick={() => shiftTeachersByOne('backward')}
+                className="px-2 py-1.5 hover:bg-slate-100 text-slate-600 transition-colors flex items-center gap-1 text-xs"
+                title="Öğretmenleri 1 yer geri kaydır"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Yer
+              </button>
+              <button
+                onClick={() => shiftTeachersByOne('forward')}
+                className="px-2 py-1.5 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors flex items-center gap-1 text-xs"
+                title="Öğretmenleri 1 yer ileri kaydır"
+              >
+                Yer
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => shiftDaysByOne('backward')}
+                className="px-2 py-1.5 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors flex items-center gap-1 text-xs"
+                title="Günleri 1 geri kaydır"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Gün
+              </button>
+              <button
+                onClick={() => shiftDaysByOne('forward')}
+                className="px-2 py-1.5 hover:bg-slate-100 text-slate-600 border-l border-slate-200 transition-colors flex items-center gap-1 text-xs"
+                title="Günleri 1 ileri kaydır"
+              >
+                Gün
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="relative" ref={popoverRef}>
+            <button
+              onClick={() => { setColorPickerOpen(o => !o); setPopover(null); }}
+              className="bg-surface border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm"
+              title="PDF satır rengi"
+            >
+              <Palette className="w-4 h-4" />
+              <span className="hidden md:inline">PDF Renk</span>
+              <span
+                className="inline-block w-3 h-3 rounded-sm border border-slate-300"
+                style={{ background: ZEBRA_COLORS.find(z => z.id === zebraColor)?.swatch }}
+              />
+            </button>
+            {colorPickerOpen && (
+              <div className="absolute right-0 mt-1 bg-surface border border-slate-200 rounded-lg shadow-lg p-2 z-40 w-44">
+                {ZEBRA_COLORS.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => { setZebraColor(c.id); setColorPickerOpen(false); }}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-slate-100 ${
+                      zebraColor === c.id ? 'bg-slate-100 font-medium' : ''
+                    }`}
+                  >
+                    <span
+                      className="inline-block w-4 h-4 rounded-sm border border-slate-300"
+                      style={{ background: c.swatch }}
+                    />
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {isAdmin && setAssignments && (
             <button
               onClick={() => setShowCancelConfirm(true)}
@@ -357,22 +562,50 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
                         </td>
                       </tr>
                     )}
-                    <tr className="hover:bg-slate-50/50 transition-colors print:hover:bg-transparent border-b border-slate-200 print:border-black">
+                    <tr className={`hover:bg-slate-50/50 transition-colors print:hover:bg-transparent border-b border-slate-200 print:border-black ${index % 2 === 1 ? 'print-zebra-row' : ''}`}>
                       <td className="py-4 px-6 print:py-0.5 print:px-1 whitespace-nowrap sticky left-0 bg-surface print:bg-transparent group-hover:bg-slate-50/50 z-10 border-r border-slate-200 print:border print:border-black">
                         <div className="font-medium text-slate-900 print:text-black print:leading-tight">{formattedDate}</div>
                         <div className="text-sm text-slate-500 print:text-black print:text-[7pt] print:leading-tight">{dayName}</div>
                       </td>
                       {locations.map((location) => {
-                        const assignedTeachers = scheduleData.data[date]?.[location.id] || [];
+                        const cellEntries = scheduleData.data[date]?.[location.id] || [];
                         return (
-                          <td key={location.id} className="py-4 px-6 print:py-0.5 print:px-1 print:border print:border-black">
-                            {assignedTeachers.length > 0 ? (
+                          <td key={location.id} className="py-4 px-6 print:py-0.5 print:px-1 print:border print:border-black align-top">
+                            {cellEntries.length > 0 ? (
                               <div className="flex flex-col gap-1 print:gap-0">
-                                {assignedTeachers.map((teacher, ti) => (
-                                  <span key={ti} className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 print:bg-transparent print:border-none print:p-0 print:text-black print:leading-tight">
-                                    {teacher.name}
-                                  </span>
-                                ))}
+                                {cellEntries.map(({ teacher, assignment }) => {
+                                  const isDouble = !!assignment.isDoubleDuty;
+                                  const canEdit = isAdmin && !!setAssignments;
+                                  return (
+                                    <button
+                                      key={assignment.id}
+                                      type="button"
+                                      onClick={(e) => {
+                                        if (!canEdit) return;
+                                        e.stopPropagation();
+                                        setPopover({
+                                          assignmentId: assignment.id,
+                                          teacherId: teacher.id,
+                                          date,
+                                          locationId: location.id,
+                                        });
+                                      }}
+                                      className={`text-left inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-medium border transition-colors print:p-0 print:border-none print:bg-transparent print:text-black print:leading-tight ${
+                                        isDouble
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                                          : 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100'
+                                      } ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
+                                      title={canEdit ? 'Düzenlemek için tıkla' : ''}
+                                    >
+                                      <span>{teacher.name}</span>
+                                      {isDouble && (
+                                        <span className="text-[10px] font-bold bg-amber-500 text-white px-1 rounded-sm print:bg-transparent print:text-black print:border print:border-black print:px-0.5">
+                                          2x
+                                        </span>
+                                      )}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             ) : (
                               <span className="text-slate-300 print:text-black text-sm">-</span>
@@ -395,6 +628,11 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
 
         {/* Print Footer */}
         <div className="hidden print:block print-footer-block">
+          {hasDoubleDuty && (
+            <div className="mb-2" style={{ border: '1px solid #000', padding: '3px 6px', background: '#fef3c7' }}>
+              <strong>NOT:</strong> Yanında "<strong>2x</strong>" işareti bulunan öğretmenler aynı gün <strong>çift nöbet</strong> tutmaktadır.
+            </div>
+          )}
           <h4 className="font-bold mb-1 underline">NÖBETÇİ ÖĞRETMEN GÖREV TALİMATNAMESİ</h4>
           <ol className="list-decimal pl-4 space-y-0 mb-4 text-justify">
             <li>Derse başlamadan 20 dk. önce okula gelir ve ders bitiminden 20 dk. sonra okuldan ayrılır.</li>
@@ -524,6 +762,115 @@ export default function ScheduleTab({ assignments, setAssignments, teachers, loc
             setScheduleArchives(prev => prev.filter(a => a.id !== archiveId));
           } : undefined}
         />
+      )}
+
+      {/* Smart popover: cell info + actions */}
+      {popover && popoverInfo && (
+        <div className="fixed inset-0 z-40 flex items-start justify-center pt-24 px-4 print:hidden" onClick={() => setPopover(null)}>
+          <div
+            ref={popoverRef}
+            className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+              <div>
+                <div className="text-xs text-slate-500">
+                  {format(parseISO(popover.date), 'dd.MM.yyyy EEEE', { locale: tr })} —{' '}
+                  {locations.find(l => l.id === popover.locationId)?.name || ''}
+                </div>
+                <div className="text-base font-semibold text-slate-800">{popoverInfo.teacher.name}</div>
+              </div>
+              <button onClick={() => setPopover(null)} className="text-slate-400 hover:text-slate-700 p-1.5 rounded hover:bg-slate-100">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-3 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-200">
+                  <div className="text-[11px] text-slate-500">O gün ders</div>
+                  <div className="text-lg font-bold text-slate-700">{popoverInfo.lessonCount}</div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-200">
+                  <div className="text-[11px] text-slate-500">Bu hafta nöbet</div>
+                  <div className="text-lg font-bold text-slate-700">{popoverInfo.weekDutyCount}</div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2 text-center border border-slate-200">
+                  <div className="text-[11px] text-slate-500">Toplam nöbet</div>
+                  <div className="text-lg font-bold text-slate-700">{popoverInfo.totalDuties}</div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                {popoverInfo.dayConflict && (
+                  <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+                    <span className="text-xs">⚠️ Bu öğretmen tercih ayarlarına göre {format(parseISO(popover.date), 'EEEE', { locale: tr })} günü nöbet tutmamalı.</span>
+                  </div>
+                )}
+                {popoverInfo.lessonCount >= 8 && (
+                  <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+                    <span className="text-xs">⚠️ O gün {popoverInfo.lessonCount} dersi var (full).</span>
+                  </div>
+                )}
+                {popoverInfo.lessonCount === 0 && (
+                  <div className="flex items-center gap-2 text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1.5 rounded">
+                    <span className="text-xs">ℹ️ O gün hiç dersi yok.</span>
+                  </div>
+                )}
+                {popoverInfo.sameDay.length > 0 && (
+                  <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+                    <span className="text-xs">⚠️ Aynı gün başka nöbet(ler)i var ({popoverInfo.sameDay.length}). Çift nöbet sayılır.</span>
+                  </div>
+                )}
+                {popoverInfo.sameWeek.length >= 2 && (
+                  <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+                    <span className="text-xs">⚠️ Bu hafta {popoverInfo.sameWeek.length + 1} nöbeti var.</span>
+                  </div>
+                )}
+              </div>
+
+              {popoverInfo.currentAssignment && (
+                <button
+                  onClick={() => toggleDoubleDuty(popoverInfo.currentAssignment!.id)}
+                  className={`w-full px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center justify-center gap-2 ${
+                    popoverInfo.currentAssignment.isDoubleDuty
+                      ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+                      : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" />
+                  {popoverInfo.currentAssignment.isDoubleDuty ? 'Çift Nöbet İşaretini Kaldır' : 'Çift Nöbet Olarak İşaretle'}
+                </button>
+              )}
+
+              {popoverInfo.candidateTeachers.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-600 mb-1.5">Bu öğretmeni başkasıyla değiştir:</div>
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) replaceAssignmentTeacher(popover.assignmentId, e.target.value);
+                    }}
+                    defaultValue=""
+                    className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-surface"
+                  >
+                    <option value="">Bir öğretmen seçin...</option>
+                    {popoverInfo.candidateTeachers.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <button
+                onClick={() => removeAssignment(popover.assignmentId)}
+                className="w-full px-3 py-2 rounded-lg text-sm font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Bu Nöbeti Sil
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Cancel Schedule Confirmation */}

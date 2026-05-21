@@ -74,5 +74,3 @@ Bu komut sırasıyla:
 ```
 
 ## Lisans
-
-Bu proje eğitim amaçlı geliştirilmiştir.

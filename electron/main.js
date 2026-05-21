@@ -2,9 +2,19 @@ import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
+
+// Uygulama ismini açıkça sabitle. Aksi halde Electron app.getName() çağrısı
+// package.json'daki "name" alanına bakar; bu da bundle sürecine göre değişebilir.
+// Sabitleyince app.getPath('userData') her sürümde aynı klasörü döndürür.
+// → %APPDATA%/okul-nobet-programi
+app.setName('okul-nobet-programi');
+
+// Native dialog'u kapatmak için flag - frontend kendi UI'sını gösterir
+const USE_NATIVE_UPDATE_DIALOG = false;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -24,6 +34,9 @@ autoUpdater.logger = console;
 
 autoUpdater.on('checking-for-update', () => {
   console.log('Güncelleme kontrol ediliyor...');
+  if (mainWindow) {
+    mainWindow.webContents.send('update-status', { status: 'checking' });
+  }
 });
 
 autoUpdater.on('update-available', (info) => {
@@ -36,8 +49,14 @@ autoUpdater.on('update-available', (info) => {
   }
 });
 
-autoUpdater.on('update-not-available', () => {
+autoUpdater.on('update-not-available', (info) => {
   console.log('Uygulama güncel.');
+  if (mainWindow) {
+    mainWindow.webContents.send('update-status', {
+      status: 'not-available',
+      version: info?.version,
+    });
+  }
 });
 
 autoUpdater.on('download-progress', (progress) => {
@@ -45,30 +64,54 @@ autoUpdater.on('download-progress', (progress) => {
     mainWindow.webContents.send('update-status', {
       status: 'downloading',
       percent: Math.round(progress.percent),
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
     });
   }
 });
 
 autoUpdater.on('update-downloaded', (info) => {
   console.log('Güncelleme indirildi:', info.version);
+
+  // Kurulum tetiklenmeden önce veritabanını mutlaka yedekle.
+  // Mevcut mimaride DB install dizininin dışında (AppData\Local) tutulduğu
+  // için NSIS güncelleme onu zaten silmez; bu yedek "ek güvence" amaçlıdır.
+  try {
+    const res = backupDatabase('pre-update');
+    if (mainWindow && res.ok) {
+      mainWindow.webContents.send('backup-status', {
+        status: 'created',
+        reason: 'pre-update',
+        path: res.path,
+      });
+    }
+  } catch (err) {
+    console.warn('[backup] update-downloaded yedeği başarısız:', err?.message || err);
+  }
+
   if (mainWindow) {
     mainWindow.webContents.send('update-status', {
       status: 'downloaded',
       version: info.version,
     });
   }
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Güncelleme Hazır',
-    message: `Yeni sürüm (v${info.version}) indirildi.`,
-    detail: 'Güncellemeyi yüklemek için uygulama yeniden başlatılacak.',
-    buttons: ['Şimdi Yeniden Başlat', 'Sonra'],
-    defaultId: 0,
-  }).then(({ response }) => {
-    if (response === 0) {
-      autoUpdater.quitAndInstall(false, true);
-    }
-  });
+
+  if (USE_NATIVE_UPDATE_DIALOG) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Güncelleme Hazır',
+      message: `Yeni sürüm (v${info.version}) indirildi.`,
+      detail: 'Güncellemeyi yüklemek için uygulama yeniden başlatılacak.',
+      buttons: ['Şimdi Yeniden Başlat', 'Sonra'],
+      defaultId: 0,
+    }).then(({ response }) => {
+      if (response === 0) {
+        // isSilent=true: NSIS wizard'ı gösterme, sessiz kur ve uygulamayı yeniden aç.
+        autoUpdater.quitAndInstall(true, true);
+      }
+    });
+  }
 });
 
 autoUpdater.on('error', (err) => {
@@ -81,20 +124,193 @@ autoUpdater.on('error', (err) => {
   }
 });
 
-// Ayar dosyası: mod ve sunucu IP'si saklanır
+// Renderer → Main: manuel kontrol ve kurulum tetikleyicileri
+ipcMain.handle('updater:check', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { ok: true, currentVersion: app.getVersion(), updateInfo: result?.updateInfo || null };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('updater:install', async () => {
+  try {
+    // Kurulumdan hemen önce son bir yedek daha al (savunmacı katman).
+    try { backupDatabase('pre-update'); } catch {}
+    // isSilent=true: NSIS sihirbazı gösterilmez, sessiz kurulum yapılır.
+    // isForceRunAfter=true: kurulum sonrası uygulama otomatik açılır.
+    // Bu kombinasyon "ilk defa kuruluyormuş gibi" hissini ortadan kaldırır.
+    setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// ───── Yedekleme IPC'leri ─────
+ipcMain.handle('backup:create', async () => {
+  return backupDatabase('manual');
+});
+
+ipcMain.handle('backup:list', async () => {
+  return listBackups();
+});
+
+ipcMain.handle('backup:open-folder', async () => {
+  try {
+    ensureBackupDir();
+    await shell.openPath(BACKUP_DIR);
+    return { ok: true, path: BACKUP_DIR };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('backup:get-paths', async () => {
+  return {
+    dbFile: DB_FILE,
+    backupDir: BACKUP_DIR,
+    dbExists: fs.existsSync(DB_FILE),
+    externalDir: getExternalBackupDir(),
+  };
+});
+
+// Ek yedek konumunu kullanıcıya seçtir (OneDrive/Drive/USB klasörü gibi)
+ipcMain.handle('backup:pick-external-dir', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: 'Ek yedek klasörü seçin (OneDrive/Drive klasörü önerilir)',
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Bu klasörü kullan',
+    });
+    if (result.canceled || !result.filePaths?.[0]) {
+      return { ok: false, canceled: true };
+    }
+    const chosen = result.filePaths[0];
+    // Yazma izni testi: gerçekten yazabiliyor muyuz?
+    try {
+      const probe = path.join(chosen, '.okulnobet-write-test');
+      fs.writeFileSync(probe, 'ok');
+      fs.unlinkSync(probe);
+    } catch {
+      return { ok: false, error: 'Seçilen klasöre yazma izniniz yok. Başka bir klasör seçin.' };
+    }
+    const settings = loadBackupSettings();
+    settings.externalDir = chosen;
+    saveBackupSettings(settings);
+    return { ok: true, path: chosen };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('backup:clear-external-dir', async () => {
+  try {
+    const settings = loadBackupSettings();
+    delete settings.externalDir;
+    saveBackupSettings(settings);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// "Yedeği indir": mevcut DB'nin (veya seçilen yedeğin) kopyasını kullanıcının
+// belirlediği konuma kaydeder. USB/Drive/manual transfer için.
+ipcMain.handle('backup:download', async (_evt, sourcePath) => {
+  try {
+    const src = (typeof sourcePath === 'string' && sourcePath) ? sourcePath : DB_FILE;
+    if (!fs.existsSync(src)) {
+      return { ok: false, error: 'Kaynak dosya bulunamadı.' };
+    }
+    const ts = new Date().toISOString().split('T')[0];
+    const defaultName = path.basename(src).startsWith('database-')
+      ? path.basename(src)
+      : `okul-nobet-yedek-${ts}.sqlite`;
+    const result = await dialog.showSaveDialog(mainWindow || undefined, {
+      title: 'Yedeği nereye kaydedelim?',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'SQLite Veritabanı', extensions: ['sqlite'] },
+        { name: 'Tüm dosyalar', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePath) {
+      return { ok: false, canceled: true };
+    }
+    fs.copyFileSync(src, result.filePath);
+    return { ok: true, path: result.filePath };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('app:get-info', () => {
+  return {
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    appMode,
+    serverUrl,
+  };
+});
+
+// Ayar dosyası: mod ve sunucu IP'si saklanır.
+//
+// Bağlantı ayarlarını sabit bir konumda tutuyoruz:
+//   %LOCALAPPDATA%\OkulNobetProgrami\connection-settings.json
+//
+// Bu klasör veritabanıyla aynı yerde, install dizinin DIŞINDA. NSIS update
+// onu silmediği gibi, app.getName()/productName değişikliklerine karşı da
+// bağışıklık sağlar. Eski sürümlerde dosya app.getPath('userData') altındaydı;
+// orada bulursak otomatik olarak yeni konuma taşıyoruz (geriye dönük uyumluluk).
+const SETTINGS_DIR  = path.join(os.homedir(), 'AppData', 'Local', 'OkulNobetProgrami');
+const SETTINGS_FILE = path.join(SETTINGS_DIR, 'connection-settings.json');
+
+// Eski (userData tabanlı) konumlardan yeni sabit konuma taşı.
+// Birkaç olası eski isim deneriz: app.getName() değişmiş olabilir.
+function migrateLegacySettings() {
+  if (fs.existsSync(SETTINGS_FILE)) return; // Yeni konum hazırsa dokunma.
+  const candidates = [];
+  try { candidates.push(path.join(app.getPath('userData'), 'connection-settings.json')); } catch {}
+  // Olası eski productName tabanlı yollar
+  const appDataRoaming = path.join(os.homedir(), 'AppData', 'Roaming');
+  for (const name of ['okul-nobet-programi', 'Okul Nöbet Programı', 'okul-nobet']) {
+    candidates.push(path.join(appDataRoaming, name, 'connection-settings.json'));
+  }
+  for (const oldPath of candidates) {
+    try {
+      if (oldPath && fs.existsSync(oldPath)) {
+        fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+        fs.copyFileSync(oldPath, SETTINGS_FILE);
+        console.log('[settings] Eski konumdan yeni konuma taşındı:', oldPath, '→', SETTINGS_FILE);
+        return;
+      }
+    } catch (err) {
+      console.warn('[settings] Migration sırasında hata:', err?.message || err);
+    }
+  }
+}
+
 function getSettingsPath() {
-  return path.join(app.getPath('userData'), 'connection-settings.json');
+  return SETTINGS_FILE;
 }
 
 function loadSettings() {
   try {
-    const raw = fs.readFileSync(getSettingsPath(), 'utf-8');
+    migrateLegacySettings();
+    const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
     return JSON.parse(raw);
   } catch { return null; }
 }
 
 function saveSettings(settings) {
-  fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2));
+  try {
+    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  } catch (err) {
+    console.error('[settings] Yazma hatası:', err?.message || err);
+  }
 }
 
 function getIconPath() {
@@ -263,7 +479,8 @@ function createSetupWindow() {
   }
 </script></body></html>`;
 
-    const tmpPath = path.join(app.getPath('userData'), 'setup.html');
+    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+    const tmpPath = path.join(SETTINGS_DIR, 'setup.html');
     fs.writeFileSync(tmpPath, html);
     setupWin.loadFile(tmpPath);
 
@@ -283,8 +500,7 @@ function createSetupWindow() {
 // Sunucu modunda başlık çubuğunda IP göster
 function getLocalIp() {
   try {
-    const { networkInterfaces } = await_import_os();
-    const nets = networkInterfaces();
+    const nets = os.networkInterfaces();
     for (const name of Object.keys(nets)) {
       for (const net of nets[name]) {
         if (net.family === 'IPv4' && !net.internal) return net.address;
@@ -294,9 +510,176 @@ function getLocalIp() {
   return 'localhost';
 }
 
-function await_import_os() {
-  const os = require('os');
-  return os;
+// ───────────────────────────────────────────────────────────
+// Veritabanı yedekleme (otomatik + güncelleme öncesi)
+// ───────────────────────────────────────────────────────────
+// Veritabanı server.ts ile aynı yolda tutulur:
+//   %LOCALAPPDATA%\OkulNobetProgrami\database.sqlite
+// Yedekler ise yan klasörde tutulur:
+//   %LOCALAPPDATA%\OkulNobetProgrami\backups\
+const DB_BASE_DIR = path.join(os.homedir(), 'AppData', 'Local', 'OkulNobetProgrami');
+const DB_FILE     = path.join(DB_BASE_DIR, 'database.sqlite');
+const BACKUP_DIR  = path.join(DB_BASE_DIR, 'backups');
+const MAX_BACKUPS = 15;
+const STARTUP_BACKUP_KEY = 'lastStartupBackupDate';
+const EXTERNAL_BACKUP_MAX = 30; // Bulut klasöründe daha fazla tutalım
+
+function getBackupSettingsPath() {
+  return path.join(app.getPath('userData'), 'backup-settings.json');
+}
+
+function loadBackupSettings() {
+  try {
+    const raw = fs.readFileSync(getBackupSettingsPath(), 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function saveBackupSettings(settings) {
+  try {
+    fs.writeFileSync(getBackupSettingsPath(), JSON.stringify(settings, null, 2));
+    return true;
+  } catch (err) {
+    console.warn('[backup] Ayarlar kaydedilemedi:', err?.message || err);
+    return false;
+  }
+}
+
+function getExternalBackupDir() {
+  const settings = loadBackupSettings();
+  const dir = settings?.externalDir;
+  if (!dir || typeof dir !== 'string') return null;
+  return dir;
+}
+
+function ensureBackupDir() {
+  try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); } catch {}
+}
+
+// Ek (kullanıcının seçtiği — örn. OneDrive/Drive senkronize klasörü) konumdaki
+// eski yedekleri temizle. Sadece bizim yazdığımız "database-..." dosyalarına dokunulur.
+function pruneExternalBackups(dir) {
+  try {
+    if (!dir || !fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir)
+      .filter((f) => f.startsWith('database-') && f.endsWith('.sqlite'))
+      .map((f) => ({
+        full: path.join(dir, f),
+        mtime: fs.statSync(path.join(dir, f)).mtimeMs,
+      }))
+      .sort((a, b) => b.mtime - a.mtime);
+
+    for (const old of entries.slice(EXTERNAL_BACKUP_MAX)) {
+      try { fs.unlinkSync(old.full); } catch {}
+    }
+  } catch (err) {
+    console.warn('[backup] Ek klasördeki eski yedekler temizlenemedi:', err?.message || err);
+  }
+}
+
+function pruneOldBackups() {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) return;
+    const entries = fs.readdirSync(BACKUP_DIR)
+      .filter((f) => f.startsWith('database-') && f.endsWith('.sqlite'))
+      .map((f) => ({
+        name: f,
+        full: path.join(BACKUP_DIR, f),
+        mtime: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs,
+      }))
+      .sort((a, b) => b.mtime - a.mtime);
+
+    for (const old of entries.slice(MAX_BACKUPS)) {
+      try { fs.unlinkSync(old.full); } catch {}
+    }
+  } catch (err) {
+    console.warn('Eski yedekler temizlenemedi:', err?.message || err);
+  }
+}
+
+// reason: 'startup' | 'pre-update' | 'manual'
+function backupDatabase(reason = 'manual') {
+  try {
+    if (!fs.existsSync(DB_FILE)) {
+      return { ok: false, error: 'Veritabanı henüz oluşturulmamış.' };
+    }
+    ensureBackupDir();
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeReason = String(reason).replace(/[^a-z0-9-]/gi, '');
+    const fileName = `database-${ts}-${safeReason}.sqlite`;
+    const dest = path.join(BACKUP_DIR, fileName);
+    fs.copyFileSync(DB_FILE, dest);
+    pruneOldBackups();
+    console.log(`[backup] Veritabanı yedeklendi (${reason}):`, dest);
+
+    // Kullanıcı ek bir konum (OneDrive/Drive/USB) seçtiyse oraya da kopyala.
+    // OneDrive/Drive klasörü ise istemci otomatik buluta senkronlar; uygulamanın
+    // doğrudan bulut API'leriyle uğraşması gerekmez ve KVKK sorumluluğu okulda kalır.
+    let externalPath = null;
+    let externalError = null;
+    const extDir = getExternalBackupDir();
+    if (extDir) {
+      try {
+        fs.mkdirSync(extDir, { recursive: true });
+        externalPath = path.join(extDir, fileName);
+        fs.copyFileSync(DB_FILE, externalPath);
+        pruneExternalBackups(extDir);
+        console.log('[backup] Ek konuma da kopyalandı:', externalPath);
+      } catch (err) {
+        externalError = err?.message || String(err);
+        externalPath = null;
+        console.warn('[backup] Ek konuma kopyalama başarısız:', externalError);
+      }
+    }
+
+    return { ok: true, path: dest, externalPath, externalError };
+  } catch (err) {
+    console.error('[backup] Yedek alınamadı:', err);
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+// Aynı gün içinde tekrar yedek almasın diye basit bir flag dosyası kullan
+function maybeRunStartupBackup() {
+  try {
+    if (appMode !== 'server') return; // İstemci modunda lokal DB yok
+    if (!fs.existsSync(DB_FILE)) return;
+    const today = new Date().toISOString().split('T')[0];
+    const flagPath = path.join(BACKUP_DIR, `.${STARTUP_BACKUP_KEY}`);
+    let last = null;
+    try { last = fs.readFileSync(flagPath, 'utf-8').trim(); } catch {}
+    if (last === today) return; // Bugün zaten yedek alındı
+    ensureBackupDir();
+    const res = backupDatabase('startup');
+    if (res.ok) {
+      try { fs.writeFileSync(flagPath, today); } catch {}
+    }
+  } catch (err) {
+    console.warn('[backup] Startup yedeklemesi atlandı:', err?.message || err);
+  }
+}
+
+function listBackups() {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) return [];
+    return fs.readdirSync(BACKUP_DIR)
+      .filter((f) => f.startsWith('database-') && f.endsWith('.sqlite'))
+      .map((f) => {
+        const full = path.join(BACKUP_DIR, f);
+        const stat = fs.statSync(full);
+        return {
+          name: f,
+          path: full,
+          size: stat.size,
+          createdAt: stat.mtime.toISOString(),
+        };
+      })
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  } catch {
+    return [];
+  }
 }
 
 app.whenReady().then(async () => {
@@ -360,6 +743,12 @@ app.whenReady().then(async () => {
       mainWindow.setTitle(`Okul Nöbet Programı — Bağlı: ${settings.serverIp}`);
     }
   }
+
+  // Günlük rolling yedek (sunucu modunda, üretim/geliştirme fark etmez).
+  // Sunucu hazır olduktan ~3 sn sonra arka planda çalışır.
+  setTimeout(() => {
+    try { maybeRunStartupBackup(); } catch {}
+  }, 3000);
 
   if (!isDev) {
     setTimeout(() => {

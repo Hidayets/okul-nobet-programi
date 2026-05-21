@@ -7,6 +7,7 @@ import { SchoolInfo, VicePrincipal, SchoolSettings, DEFAULT_SCHOOL_SETTINGS, cal
 import { useTheme, THEMES } from '../ThemeContext';
 import { cn } from '../lib/utils';
 import { fetchMebHolidays } from '../lib/mebCalendar';
+import BackupSection from './BackupSection';
 
 interface Props {
   schoolInfo: SchoolInfo;
@@ -978,6 +979,9 @@ export default function SettingsTab({ schoolInfo, setSchoolInfo, holidays, setHo
           </div>
         </div>
       </div>
+
+      {/* Veri Yedekleme */}
+      <BackupSection />
 
       {/* Kaydet Butonu */}
       <div className="flex justify-end">
